@@ -3,7 +3,6 @@ package com.tcs.invoicefactoring.security;
 import com.tcs.invoicefactoring.identity.domain.User;
 import com.tcs.invoicefactoring.identity.repository.UserRepository;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -28,12 +27,12 @@ import java.util.UUID;
 /**
  * JWT authentication filter.
  *
- * Security rules enforced:
+ * Security rules:
  * 1. Extract and validate JWT from Authorization header.
- * 2. Load the user from the DB (not from JWT claims alone) to verify they still exist
- *    and are active — this prevents stale tokens from authenticating deleted users.
- * 3. Establish TenantContextHolder from TRUSTED DB data.
- * 4. Always clear TenantContextHolder in the finally block.
+ * 2. Load the user from the DB to verify they still exist and are active.
+ * 3. Establish TenantContextHolder for the duration of the HTTP request.
+ * 4. Ensure TenantContextHolder and MDC are ALWAYS cleared in the finally block
+ *    after downstream request processing (including exceptions), preventing thread-leakage.
  * 5. NEVER log the Authorization header value or JWT token string.
  */
 @Component
@@ -59,66 +58,49 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         try {
             String authHeader = request.getHeader("Authorization");
-            if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
-                filterChain.doFilter(request, response);
-                return;
+            if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+                String token = authHeader.substring(BEARER_PREFIX.length());
+
+                try {
+                    Claims claims = jwtService.validateAndExtract(token);
+                    UUID userId = jwtService.extractUserId(claims);
+
+                    if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                        Optional<User> userOpt = userRepository.findById(userId);
+                        if (userOpt.isPresent() && userOpt.get().isEnabled()) {
+                            User user = userOpt.get();
+                            UUID orgId = jwtService.extractOrgId(claims);
+                            String role = jwtService.extractRole(claims);
+
+                            MDC.put("userId", userId.toString());
+                            MDC.put("orgId", orgId.toString());
+
+                            // Establish thread-local tenant context for this request
+                            TenantContextHolder.set(userId, orgId, role);
+
+                            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
+                            var authentication = new UsernamePasswordAuthenticationToken(user, null, authorities);
+                            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                            SecurityContextHolder.getContext().setAuthentication(authentication);
+                        } else {
+                            log.warn("JWT references unknown or disabled user={} path={}", userId, request.getRequestURI());
+                        }
+                    }
+                } catch (JwtException ex) {
+                    log.debug("JWT validation skipped or failed: {}", ex.getMessage());
+                }
             }
 
-            // NOTE: Do NOT log the token value
-            String token = authHeader.substring(BEARER_PREFIX.length());
-            Claims claims;
-
-            try {
-                claims = jwtService.validateAndExtract(token);
-            } catch (ExpiredJwtException ex) {
-                log.debug("JWT token expired for request: {}", request.getRequestURI());
-                filterChain.doFilter(request, response);
-                return;
-            } catch (JwtException ex) {
-                log.warn("Invalid JWT token on path={}", request.getRequestURI());
-                filterChain.doFilter(request, response);
-                return;
-            }
-
-            UUID userId = jwtService.extractUserId(claims);
-
-            // If already authenticated in this request, skip
-            if (SecurityContextHolder.getContext().getAuthentication() != null) {
-                filterChain.doFilter(request, response);
-                return;
-            }
-
-            // Verify user exists and is active in the DB — do NOT trust JWT claims alone
-            Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isEmpty() || !userOpt.get().isEnabled()) {
-                log.warn("JWT references unknown or disabled user={} path={}",
-                        userId, request.getRequestURI());
-                filterChain.doFilter(request, response);
-                return;
-            }
-
-            User user = userOpt.get();
-            UUID orgId = jwtService.extractOrgId(claims);
-            String role = jwtService.extractRole(claims);
-
-            // Add MDC context for structured logging (userId, orgId only — no PII beyond IDs)
-            MDC.put("userId", userId.toString());
-            MDC.put("orgId", orgId.toString());
-
-            // Establish thread-local tenant context from trusted DB data
-            TenantContextHolder.set(userId, orgId, role);
-
-            // Create Spring Security authentication token
-            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
-            var authentication = new UsernamePasswordAuthenticationToken(user, null, authorities);
-            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            // Downstream filter-chain executes INSIDE the try block,
+            // ensuring TenantContextHolder remains active for the entire request
+            filterChain.doFilter(request, response);
 
         } finally {
-            // Always clear tenant context to prevent thread-local leakage
+            // Guaranteed cleanup on all paths, including unhandled exceptions,
+            // preventing tenant context leakage on pooled servlet threads
             TenantContextHolder.clear();
+            MDC.remove("userId");
+            MDC.remove("orgId");
         }
-
-        filterChain.doFilter(request, response);
     }
 }
