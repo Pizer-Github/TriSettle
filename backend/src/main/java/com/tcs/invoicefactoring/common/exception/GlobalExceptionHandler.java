@@ -91,6 +91,46 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
     }
 
+    // ── Data Integrity & Constraint Violations ───────────────────────────────
+
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrityViolation(org.springframework.dao.DataIntegrityViolationException ex, HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        String message = ex.getMessage() != null ? ex.getMessage() : "";
+
+        if (message.contains("uq_global_document_sha256")) {
+            log.warn("Global document hash collision detected — path={} correlationId={}", request.getRequestURI(), correlationId);
+            ApiError error = ApiError.of(ErrorCode.DUPLICATE_DOCUMENT.name(),
+                    ErrorCode.DUPLICATE_DOCUMENT.getDefaultMessage(), correlationId);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+        }
+
+        if (message.contains("uq_sme_buyer_invoice_number")) {
+            log.warn("Duplicate invoice number collision — path={} correlationId={}", request.getRequestURI(), correlationId);
+            ApiError error = ApiError.of(ErrorCode.DUPLICATE_INVOICE.name(),
+                    ErrorCode.DUPLICATE_INVOICE.getDefaultMessage(), correlationId);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+        }
+
+        if (message.contains("chk_invoices_amount_math")) {
+            log.warn("Check constraint chk_invoices_amount_math violation — path={} correlationId={}", request.getRequestURI(), correlationId);
+            ApiError error = ApiError.of(ErrorCode.VALIDATION_ERROR.name(),
+                    "Total amount must exactly equal taxable amount plus tax amount", correlationId);
+            return ResponseEntity.badRequest().body(error);
+        }
+
+        if (message.contains("chk_invoices_due_date")) {
+            log.warn("Check constraint chk_invoices_due_date violation — path={} correlationId={}", request.getRequestURI(), correlationId);
+            ApiError error = ApiError.of(ErrorCode.VALIDATION_ERROR.name(),
+                    "Due date cannot be before invoice date", correlationId);
+            return ResponseEntity.badRequest().body(error);
+        }
+
+        log.error("Data integrity violation — path={} correlationId={}", request.getRequestURI(), correlationId, ex);
+        ApiError error = ApiError.of(ErrorCode.CONFLICT.name(), "A data integrity constraint was violated", correlationId);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     // ── Catch-all ─────────────────────────────────────────────────────────────
 
     @ExceptionHandler(Exception.class)

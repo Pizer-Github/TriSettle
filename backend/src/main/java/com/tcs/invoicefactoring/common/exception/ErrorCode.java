@@ -23,7 +23,19 @@ public enum ErrorCode {
     VALIDATION_ERROR("Validation failed", HttpStatus.BAD_REQUEST),
     RESOURCE_NOT_FOUND("Resource not found", HttpStatus.NOT_FOUND),
     CONFLICT("Conflict", HttpStatus.CONFLICT),
-    INTERNAL_ERROR("An unexpected error occurred", HttpStatus.INTERNAL_SERVER_ERROR);
+    INTERNAL_ERROR("An unexpected error occurred", HttpStatus.INTERNAL_SERVER_ERROR),
+
+    // ── Idempotency & Concurrency ──────────────────────────────────────────────
+    IDEMPOTENCY_CONFLICT("Idempotency conflict", HttpStatus.CONFLICT),
+    STALE_IDEMPOTENCY_LEASE("Idempotency lease is stale or was reclaimed", HttpStatus.CONFLICT),
+
+    // ── Invoices & Documents ───────────────────────────────────────────────────
+    INVOICE_NOT_FOUND("Invoice not found", HttpStatus.NOT_FOUND),
+    DUPLICATE_INVOICE("An invoice with this number already exists for this buyer", HttpStatus.CONFLICT),
+    DUPLICATE_DOCUMENT("An invoice document with identical cryptographic content already exists on the network", HttpStatus.CONFLICT),
+    INVALID_INVOICE_STATE("Invoice is not in the required state for this operation", HttpStatus.CONFLICT),
+    DOCUMENT_REQUIRED("An active document is required before this operation can proceed", HttpStatus.BAD_REQUEST),
+    PAYLOAD_TOO_LARGE("File size exceeds the allowed limit", HttpStatus.PAYLOAD_TOO_LARGE);
 
     private final String defaultMessage;
     private final HttpStatus httpStatus;
