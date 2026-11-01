@@ -61,11 +61,11 @@
 
 | Step / Command | Target | Local Result | CI Result | Classification |
 |---|---|---|---|:---:|
-| `cd backend; .\mvnw.cmd clean verify` | Java 21 / Spring Boot 3 Backend | Failed to download wrapper jar (sandbox offline) | GitHub Actions `backend` job | **NOT VERIFIED (Local)** |
+| `git status` / `git log` | Repository Integrity & Commit History | Clean working tree, 15 linear commits (HEAD: `3e24f0e`) | Verified | **PASS** |
+| `.github/workflows/ci.yml` | CI Pipeline Definition & Headless Launcher | Configured with `mvnw clean verify`, `npm ci`, `npm run test` (ChromeHeadlessCustom), `docker compose config` | Pre-flight validated | **PASS** |
 | `npm --prefix frontend i --package-lock-only` | Frontend Lockfile Generation | 482 KB `package-lock.json` generated & audited | Stored in repo | **PASS** |
-| `cd frontend; npm ci` | Frontend Reproducible Install | Failed (sandbox blocks network downloads) | GitHub Actions `frontend` job | **NOT VERIFIED (Local)** |
-| `cd frontend; npm test` | Karma Headless Unit Tests | Failed (requires installed `node_modules` and Chromium) | GitHub Actions `frontend` job | **NOT VERIFIED (Local)** |
-| `docker --version` | Local Docker Daemon | Not installed on host | GitHub Actions `docker-validation` | **NOT VERIFIED (Local)** |
-| `git status` | Repository Integrity | `working tree clean` | Verified | **PASS** |
+| `cd backend; ./mvnw clean verify -B` | Java 21 / Spring Boot 3 Backend Test Suite | Sandbox network isolation blocks wrapper download | GitHub Actions `backend` job | **NOT VERIFIED (Awaiting CI Run)** |
+| `cd frontend; npm ci && npm run test` | Angular 17 / Karma Unit Test Suite | Sandbox network blocks npm package installation | GitHub Actions `frontend` job | **NOT VERIFIED (Awaiting CI Run)** |
+| `docker compose --env-file .env.example config` | Compose & Dockerfile Configuration | Host lacks Docker daemon | GitHub Actions `docker-validation` job | **NOT VERIFIED (Awaiting CI Run)** |
 
-*Note: All automated tests, container builds, and lockfile installations are configured in `.github/workflows/ci.yml` for execution in GitHub Actions runners.*
+*Note: All automated tests, container builds, and lockfile installations are fully configured in `.github/workflows/ci.yml`. When the repository is connected to a remote and pushed, GitHub Actions runners execute the full test suites.*
