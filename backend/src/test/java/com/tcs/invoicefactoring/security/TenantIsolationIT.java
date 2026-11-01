@@ -3,6 +3,7 @@ package com.tcs.invoicefactoring.security;
 import com.tcs.invoicefactoring.identity.domain.Organization;
 import com.tcs.invoicefactoring.identity.domain.User;
 import com.tcs.invoicefactoring.identity.domain.UserOrganization;
+import com.tcs.invoicefactoring.identity.repository.AuthUserProjection;
 import com.tcs.invoicefactoring.identity.repository.OrganizationRepository;
 import com.tcs.invoicefactoring.identity.repository.UserOrganizationRepository;
 import com.tcs.invoicefactoring.identity.repository.UserRepository;
@@ -20,18 +21,22 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tenant Isolation Integration Tests.
+ * Tenant Isolation and Row-Level Security (RLS) Integration Tests.
  *
- * TESTING_STRATEGY.md §3: Assert SME cannot read Financier data.
- * Assert that RLS context must be explicitly established before data access.
- *
- * These tests verify the RLS foundation established in V4__enable_rls_foundation.sql.
+ * Tests execute against actual PostgreSQL instances using the runtime application role (app_worker).
+ * Verifies that:
+ * - SME cannot read another SME's organizations, users, or memberships.
+ * - Financier cannot read another Financier's private data.
+ * - Missing tenant context fails closed (0 rows returned).
+ * - Context is transaction-local (is_local=true) and cannot leak between transactions.
+ * - Authentication lookup function (SECURITY DEFINER) returns only the specific authenticated user.
  */
 @SpringBootTest
 @Testcontainers
@@ -72,100 +77,201 @@ class TenantIsolationIT {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    private UUID smeOrgId;
+    private UUID smeOrg1Id;
+    private UUID smeOrg2Id;
     private UUID financierOrgId;
-    private UUID smeUserId;
+    private UUID smeUser1Id;
+    private UUID smeUser2Id;
+    private String smeUser1Email;
 
-    /**
-     * Set up two organisations (SME and Financier) with one user each.
-     * Each setup call creates fresh data; the @Transactional on test methods
-     * rolls back after each test.
-     */
     @BeforeEach
     @Transactional
-    void setup() {
-        // Create SME org and user
-        Organization smeOrg = new Organization();
-        smeOrg.setName("Test SME Ltd");
-        smeOrg.setOrgType(Organization.OrgType.SME);
-        organizationRepository.save(smeOrg);
-        smeOrgId = smeOrg.getId();
+    void setupTenants() {
+        // Ensure test_owner creates seeded data
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
 
-        User smeUser = new User();
-        smeUser.setEmail("sme-user-" + UUID.randomUUID() + "@test.com");
-        smeUser.setPasswordHash(passwordEncoder.encode("Test@Password1"));
-        smeUser.setFullName("SME User");
-        userRepository.save(smeUser);
-        smeUserId = smeUser.getId();
+        // Tenant 1: SME 1
+        Organization sme1 = new Organization();
+        sme1.setName("Alpha Manufacturers Ltd");
+        sme1.setOrgType(Organization.OrgType.SME);
+        organizationRepository.save(sme1);
+        smeOrg1Id = sme1.getId();
 
-        UserOrganization smeUO = new UserOrganization();
-        smeUO.setUser(smeUser);
-        smeUO.setOrganization(smeOrg);
-        smeUO.setRole("SME");
-        userOrgRepository.save(smeUO);
+        smeUser1Email = "founder@alpha-" + UUID.randomUUID() + ".com";
+        User u1 = new User();
+        u1.setEmail(smeUser1Email);
+        u1.setPasswordHash(passwordEncoder.encode("Secret123!"));
+        u1.setFullName("Alpha Founder");
+        userRepository.save(u1);
+        smeUser1Id = u1.getId();
 
-        // Create Financier org and user
-        Organization financierOrg = new Organization();
-        financierOrg.setName("Test Financier Corp");
-        financierOrg.setOrgType(Organization.OrgType.FINANCIER);
-        organizationRepository.save(financierOrg);
-        financierOrgId = financierOrg.getId();
+        UserOrganization uo1 = new UserOrganization();
+        uo1.setUser(u1);
+        uo1.setOrganization(sme1);
+        uo1.setRole("SME");
+        userOrgRepository.save(uo1);
 
-        User financierUser = new User();
-        financierUser.setEmail("financier-user-" + UUID.randomUUID() + "@test.com");
-        financierUser.setPasswordHash(passwordEncoder.encode("Test@Password1"));
-        financierUser.setFullName("Financier User");
-        userRepository.save(financierUser);
+        // Tenant 2: SME 2
+        Organization sme2 = new Organization();
+        sme2.setName("Beta Logistics Ltd");
+        sme2.setOrgType(Organization.OrgType.SME);
+        organizationRepository.save(sme2);
+        smeOrg2Id = sme2.getId();
 
-        UserOrganization financierUO = new UserOrganization();
-        financierUO.setUser(financierUser);
-        financierUO.setOrganization(financierOrg);
-        financierUO.setRole("FINANCIER");
-        userOrgRepository.save(financierUO);
+        User u2 = new User();
+        u2.setEmail("ceo@beta-" + UUID.randomUUID() + ".com");
+        u2.setPasswordHash(passwordEncoder.encode("Secret123!"));
+        u2.setFullName("Beta CEO");
+        userRepository.save(u2);
+        smeUser2Id = u2.getId();
+
+        UserOrganization uo2 = new UserOrganization();
+        uo2.setUser(u2);
+        uo2.setOrganization(sme2);
+        uo2.setRole("SME");
+        userOrgRepository.save(uo2);
+
+        // Tenant 3: Financier
+        Organization fin = new Organization();
+        fin.setName("Global Capital Partners");
+        fin.setOrgType(Organization.OrgType.FINANCIER);
+        organizationRepository.save(fin);
+        financierOrgId = fin.getId();
+
+        User u3 = new User();
+        u3.setEmail("investor@global-" + UUID.randomUUID() + ".com");
+        u3.setPasswordHash(passwordEncoder.encode("Secret123!"));
+        u3.setFullName("Capital Investor");
+        userRepository.save(u3);
+
+        UserOrganization uo3 = new UserOrganization();
+        uo3.setUser(u3);
+        uo3.setOrganization(fin);
+        uo3.setRole("FINANCIER");
+        userOrgRepository.save(uo3);
 
         entityManager.flush();
     }
 
     @Test
     @Transactional
-    void rlsContextService_establishesContextCorrectly() {
-        // Establish RLS context for SME org
-        rlsContextService.establishContext(smeOrgId, "SME");
+    void missingTenantContext_failsClosedUnderRls() {
+        // Assume app_worker role (subject to RLS, no bypass)
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
 
-        String tenantId = rlsContextService.getCurrentTenantId();
-        String tenantType = rlsContextService.getCurrentTenantType();
+        // Without setting app.tenant_id, all RLS queries must return empty result sets
+        List<?> orgs = entityManager.createNativeQuery("SELECT id FROM organizations").getResultList();
+        List<?> users = entityManager.createNativeQuery("SELECT id FROM users").getResultList();
+        List<?> memberships = entityManager.createNativeQuery("SELECT id FROM user_organizations").getResultList();
 
-        assertThat(tenantId).isEqualTo(smeOrgId.toString());
-        assertThat(tenantType).isEqualTo("SME");
+        assertThat(orgs).isEmpty();
+        assertThat(users).isEmpty();
+        assertThat(memberships).isEmpty();
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
     }
 
     @Test
     @Transactional
-    void rlsContext_mustBeInsideTransaction() {
-        // Attempting to establish RLS context outside a transaction must throw.
-        // NOTE: In this test we ARE in a transaction (@Transactional on the test),
-        // so this particular assertion tests the happy path — the service verifies
-        // TransactionSynchronizationManager.isActualTransactionActive().
-        // The negative case (no transaction) is verified by the service's guard itself.
+    void smeTenant_canOnlyReadOwnData_crossTenantAccessDenied() {
+        // Assume app_worker runtime role
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
 
-        // This should succeed — we are inside a @Transactional test method
-        rlsContextService.establishContext(smeOrgId, "SME");
-        assertThat(rlsContextService.getCurrentTenantId()).isEqualTo(smeOrgId.toString());
+        // Establish transaction-local RLS context for SME 1
+        rlsContextService.establishContext(smeOrg1Id, "SME");
+
+        // Query organizations under SME 1 context
+        @SuppressWarnings("unchecked")
+        List<UUID> visibleOrgIds = entityManager.createNativeQuery("SELECT id FROM organizations", UUID.class).getResultList();
+        assertThat(visibleOrgIds).containsExactly(smeOrg1Id);
+        assertThat(visibleOrgIds).doesNotContain(smeOrg2Id, financierOrgId);
+
+        // Query users under SME 1 context
+        @SuppressWarnings("unchecked")
+        List<UUID> visibleUserIds = entityManager.createNativeQuery("SELECT id FROM users", UUID.class).getResultList();
+        assertThat(visibleUserIds).containsExactly(smeUser1Id);
+        assertThat(visibleUserIds).doesNotContain(smeUser2Id);
+
+        // Query memberships under SME 1 context
+        @SuppressWarnings("unchecked")
+        List<UUID> visibleMemberships = entityManager.createNativeQuery("SELECT org_id FROM user_organizations", UUID.class).getResultList();
+        assertThat(visibleMemberships).containsExactly(smeOrg1Id);
+        assertThat(visibleMemberships).doesNotContain(smeOrg2Id);
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
     }
 
     @Test
     @Transactional
-    void organization_canBeFoundById_withMatchingTenantContext() {
-        rlsContextService.establishContext(smeOrgId, "SME");
-        entityManager.flush();
-        entityManager.clear();
+    void financierTenant_canOnlyReadOwnData_smeDataInvisible() {
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
 
-        // With RLS context for smeOrgId, we can find that org
-        // (RLS policy: org id must match app.tenant_id)
-        // Note: In test environment, test user runs as test_owner (superuser equivalent)
-        // so RLS is not enforced. This test verifies the context IS set correctly.
-        // Full RLS enforcement tests require connecting as app_worker role specifically.
-        assertThat(rlsContextService.getCurrentTenantId()).isEqualTo(smeOrgId.toString());
-        assertThat(rlsContextService.getCurrentTenantType()).isEqualTo("SME");
+        // Establish context for Financier
+        rlsContextService.establishContext(financierOrgId, "FINANCIER");
+
+        @SuppressWarnings("unchecked")
+        List<UUID> visibleOrgIds = entityManager.createNativeQuery("SELECT id FROM organizations", UUID.class).getResultList();
+        assertThat(visibleOrgIds).containsExactly(financierOrgId);
+        assertThat(visibleOrgIds).doesNotContain(smeOrg1Id, smeOrg2Id);
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+    }
+
+    @Test
+    @Transactional
+    void authLookupFunction_returnsOnlySingleMatchingRecord() {
+        // The auth lookup function can be executed by app_worker without setting tenant context
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+
+        Optional<AuthUserProjection> authUserOpt = userRepository.findAuthUserByEmail(smeUser1Email);
+
+        assertThat(authUserOpt).isPresent();
+        AuthUserProjection authUser = authUserOpt.get();
+        assertThat(authUser.getUserId()).isEqualTo(smeUser1Id);
+        assertThat(authUser.getOrgId()).isEqualTo(smeOrg1Id);
+        assertThat(authUser.getRole()).isEqualTo("SME");
+
+        // Non-existent email returns empty
+        Optional<AuthUserProjection> nonExistent = userRepository.findAuthUserByEmail("nobody@nowhere.com");
+        assertThat(nonExistent).isEmpty();
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+    }
+
+    @Test
+    @Transactional
+    void contextIsolation_betweenConsecutiveTransactions() {
+        // Transaction 1: SME 1 sets context
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+        rlsContextService.establishContext(smeOrg1Id, "SME");
+
+        assertThat(rlsContextService.getCurrentTenantId()).isEqualTo(smeOrg1Id.toString());
+
+        // In PostgreSQL, because is_local=true was used, closing the transaction resets context.
+        // We simulate a new transaction boundary by clearing transaction-local GUC:
+        entityManager.createNativeQuery("SELECT set_config('app.tenant_id', '', true)").getSingleResult();
+
+        // New query with cleared context must fail closed
+        List<?> orgs = entityManager.createNativeQuery("SELECT id FROM organizations").getResultList();
+        assertThat(orgs).isEmpty();
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+    }
+
+    @Test
+    @Transactional
+    void backgroundWorker_dynamicallyAssumesTrustedTenantContext() {
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+
+        // Background worker fetches trusted ownership data (smeOrg2Id) from job queue
+        // and explicitly establishes context inside its transaction
+        rlsContextService.establishContext(smeOrg2Id, "WORKER");
+
+        @SuppressWarnings("unchecked")
+        List<UUID> visibleOrgIds = entityManager.createNativeQuery("SELECT id FROM organizations", UUID.class).getResultList();
+        assertThat(visibleOrgIds).containsExactly(smeOrg2Id);
+        assertThat(visibleOrgIds).doesNotContain(smeOrg1Id);
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
     }
 }

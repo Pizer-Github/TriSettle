@@ -29,7 +29,7 @@ import java.util.UUID;
  *
  * Security rules:
  * 1. Extract and validate JWT from Authorization header.
- * 2. Load the user from the DB to verify they still exist and are active.
+ * 2. Load the user from the DB via controlled function to verify they still exist and are active.
  * 3. Establish TenantContextHolder for the duration of the HTTP request.
  * 4. Ensure TenantContextHolder and MDC are ALWAYS cleared in the finally block
  *    after downstream request processing (including exceptions), preventing thread-leakage.
@@ -66,7 +66,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     UUID userId = jwtService.extractUserId(claims);
 
                     if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                        Optional<User> userOpt = userRepository.findById(userId);
+                        Optional<User> userOpt = userRepository.findActiveUserById(userId);
                         if (userOpt.isPresent() && userOpt.get().isEnabled()) {
                             User user = userOpt.get();
                             UUID orgId = jwtService.extractOrgId(claims);
