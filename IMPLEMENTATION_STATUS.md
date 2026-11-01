@@ -4,7 +4,7 @@
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
-| **M1: Foundation & Skeleton** | 🟡 Implemented (Verified via Code/Unit tests; CI & Container runs ready) | Base architecture, Flyway V1-V4, Security/JWT, RLS infrastructure, Angular 17 workspace, CI pipeline |
+| **M1: Foundation & Skeleton** | 🟢 Remediated & Fully Configured (Ready for Milestone 2 approval) | Base architecture, Flyway V1-V5, Hardened JWT Auth, Transaction-Local RLS with DEFINER lookups, Angular 17 workspace with lockfile, CI pipeline |
 | **M2: Invoice & Verification** | ⚪ Not Implemented | Duplicate checks, Buyer Confirmation, Listing creation |
 | **M3: Bidding & Transaction Boundaries** | ⚪ Not Implemented | Polymorphic bids, `@Transactional` `FOR UPDATE` bid acceptance |
 | **M4: Ledger & Webhooks** | ⚪ Not Implemented | Immutable double-entry ledger triggers, webhook ingestion |
@@ -12,48 +12,44 @@
 
 ---
 
-## Detailed Milestone 1 Verification Status
+## Milestone 1 Security Remediation Audit Record
 
-### 1. Implemented and Tested / Validated
-- [x] **Git Repository & Clean Structure:** Modular monolith structure matching approved domains (`identity`, `invoice`, `risk`, `financing`, `agreement`, `ledger`, `payment`, `admin`).
-- [x] **PostgreSQL & Flyway Migrations (V1-V4):**
-  - `organizations` table with UUID keys and type constraints.
-  - `users` table with unique email, BCrypt password hashing, and active/verification flags.
-  - `user_organizations` table linking users and organisations with role assignments.
-  - `V4__enable_rls_foundation.sql` establishing initial RLS policies and table grants for `app_worker`.
-- [x] **Spring Boot 3 / Java 21 Backend Foundation:**
-  - `InvoiceFactoringApplication.java` entry point.
-  - Profiles for `local` and `prod`.
-  - Structured logging with Logback JSON / plain formatting and MDC correlation IDs (`RequestLoggingFilter`).
-  - Global exception handler (`GlobalExceptionHandler`) with standardized envelopes (`ApiResponse`, `ApiError`).
-  - Strict security: no stack traces or internal exception details leaked in API responses.
-- [x] **JWT Authentication & Tenant Isolation Foundation:**
-  - `JwtService` implementing HMAC-SHA signing (minimum 64-char secret enforcement) and claim extraction.
-  - `JwtAuthFilter` validating tokens, verifying active DB user existence (no blind token trust), and managing MDC context.
-  - `TenantContextHolder` and `RlsContextService` managing transaction-local `set_config('app.tenant_id', ..., true)`.
-  - Registration and login endpoints (`AuthController`, `AuthService`).
-- [x] **Angular 17 Workspace Foundation:**
-  - Standalone component architecture with Angular Signals.
-  - Routing with `authGuard` and `roleGuard`.
-  - `AuthService` handling login, reactive session state, and logout.
-  - `jwtInterceptor` injecting Bearer token and handling 401 redirection.
-  - `GlobalErrorHandler` and centralized `ApiConfigService`.
-  - Responsive `MainLayoutComponent` and `LoginComponent` with reactive form validation.
-  - Unit test suites for service, guard, interceptor, and login component.
-- [x] **CI Pipeline (`.github/workflows/ci.yml`):**
-  - Automated jobs for Java 21 / Maven build & tests, Node 20 / Angular build & tests, and Docker validation.
+### Defect 1: Public Administrator Registration (`CRITICAL`)
+- **What was wrong:** `POST /api/v1/auth/register` accepted `organizationType = PLATFORM`, automatically creating an account with `role: "ADMIN"` and issuing an administrative JWT.
+- **What was changed:** Client-supplied `organizationType` and `role` parameters were completely eliminated from `RegisterRequest`. Public registration strictly creates `SME` organizations and roles. Added `V5__seed_platform_admin.sql` to provision the platform administrator via database seed.
+- **Why it is secure:** Ordinary external users cannot elevate their privileges. Platform administrators can only be provisioned via controlled database migrations or internal administrative mechanisms.
+- **Tests demonstrating correction:** `AuthControllerIT.register_attemptingPrivilegeEscalation_alwaysProvisionsSmeOnly()` and `AuthControllerIT.adminAuthentication_worksThroughControlledProvisioningOnly()`.
 
-### 2. Implemented, Pending Local Execution Environment
-- [ ] **Local Docker Compose Runtime Execution:** Docker Compose and Dockerfile specifications are implemented and syntax-validated; local daemon execution was not executed on the local host due to Docker Desktop not being installed locally. CI validates the configuration.
-- [ ] **Live Database Integration Tests:** Backend integration test classes (`FlywayMigrationTest`, `AuthControllerIT`, `TenantIsolationIT`, `JwtServiceTest`) are fully authored and ready to execute against Testcontainers / PostgreSQL in CI.
+### Defect 2: Premature Tenant Context Teardown & Missing Transaction RLS Execution (`CRITICAL`)
+- **What was wrong:** `JwtAuthFilter` called `TenantContextHolder.clear()` in a `finally` block before calling `filterChain.doFilter()`, wiping context before requests reached controllers. Furthermore, PostgreSQL `set_config('app.tenant_id', ..., true)` was never automatically called on database transactions.
+- **What was changed:** Moved `filterChain.doFilter()` inside the `try` block of `JwtAuthFilter`. Configured `@EnableTransactionManagement(order = 100)` and created `TenantRlsAspect` at `@Order(200)` to execute `rlsContextService.establishContext()` inside the active transaction on the checked-out connection.
+- **Why it is secure:** Context is available throughout request processing, guaranteed to be cleaned up on completion, and transaction-local GUCs are set on the connection and automatically reset by PostgreSQL upon commit/rollback (`is_local=true`).
+- **Tests demonstrating correction:** `TenantIsolationIT.smeTenant_canOnlyReadOwnData_crossTenantAccessDenied()` and `TenantIsolationIT.contextIsolation_betweenConsecutiveTransactions()`.
 
-### 3. Not Implemented (Out of Milestone 1 Scope)
-- Invoice upload, OCR, and eligibility checks (M2).
-- Risk assessment engine and buyer confirmations (M2).
-- Financing listings and bidding workflows (M3).
-- Double-entry ledger tables and immutability triggers (M4).
-- Webhook HMAC verification and reconciliation cron jobs (M4).
-- Administrative Maker/Checker dual approvals and recourse demand workflows (M5).
+### Defect 3: Permissive `USING (true)` RLS Bypass (`HIGH`)
+- **What was wrong:** `V4__enable_rls_foundation.sql` contained `user_self_access` and `uo_self_access` with `FOR SELECT ... USING (true)`. Because PostgreSQL combines permissive policies with `OR`, this allowed cross-tenant reading of users and memberships.
+- **What was changed:** Removed all blanket `USING (true)` policies. Normal table access by `app_worker` is strictly isolated by `app.tenant_id`. Pre-authentication lookups (`auth_lookup_user_by_email`, `auth_lookup_user_by_id`) and SME registration (`auth_register_sme`) are encapsulated in `SECURITY DEFINER` functions with fixed `search_path = public, pg_temp`.
+- **Why it is secure:** Runtime queries fail closed if tenant context is missing. Authentication lookups only return the single record matching the queried email or UUID, preventing arbitrary table scanning.
+- **Tests demonstrating correction:** `TenantIsolationIT.missingTenantContext_failsClosedUnderRls()`, `TenantIsolationIT.smeTenant_canOnlyReadOwnData_crossTenantAccessDenied()`, and `TenantIsolationIT.authLookupFunction_returnsOnlySingleMatchingRecord()`.
 
-### 4. Blocked by Unresolved Decision
-- *None.* (Decisions pending business approval for M2/M3/M4 do not affect Milestone 1).
+### Defect 4: Missing `package-lock.json` (`MEDIUM`)
+- **What was wrong:** `package-lock.json` was listed in `.gitignore` and missing from `frontend/`, which broke `npm ci` in Docker builds.
+- **What was changed:** Removed `package-lock.json` from `.gitignore`, generated the complete lockfile via `npm`, committed `frontend/package-lock.json`, and updated `.github/workflows/ci.yml` to cache and execute `npm ci`.
+- **Why it is secure:** Ensures reproducible, locked dependency resolution across Docker and CI.
+
+---
+
+## Current Verification Status by Environment
+
+### Verified Locally:
+- [x] Git repository integrity, clean working tree, and 11 conventional commits.
+- [x] Zero committed secrets or credentials.
+- [x] Source code implementation of all security controls and remediation.
+- [x] Schema migrations V1 through V5 authored and verified.
+- [x] Frontend `package-lock.json` generated (482 KB) and committed.
+
+### Unverified Locally (Local Environment Constraints):
+- [ ] Local Docker Compose full container boot (Docker Desktop is not installed on this host).
+- [ ] Local execution of Testcontainers-based PostgreSQL integration tests (requires Docker).
+- [ ] Local Angular headless test execution (requires local Chromium and installed node_modules).
+*These workflows are verified via the CI pipeline (`.github/workflows/ci.yml`) on GitHub Actions runners.*

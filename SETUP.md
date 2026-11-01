@@ -49,7 +49,7 @@ TCS_Project/
 │   │   │       ├── application-local.yml             # Local development overrides
 │   │   │       ├── application-prod.yml              # Production profile
 │   │   │       ├── logback-spring.xml                # Structured JSON / console logging
-│   │   │       └── db/migration/                     # Flyway SQL migrations (V1 - V4)
+│   │   │       └── db/migration/                     # Flyway SQL migrations (V1 - V5)
 │   │   └── test/                                     # Automated test suites (Flyway, Auth, Tenant RLS)
 │   ├── pom.xml                                       # Maven build descriptor
 │   └── mvnw / mvnw.cmd                               # Maven wrappers
@@ -141,6 +141,7 @@ Database migrations are managed via **Flyway** and execute automatically when th
 - `V2__create_users.sql`: Platform user accounts table with BCrypt hash storage.
 - `V3__create_user_organizations.sql`: User-to-organisation role mapping.
 - `V4__enable_rls_foundation.sql`: Row-Level Security enablement, runtime role grants, and tenant isolation policies.
+- `V5__seed_platform_admin.sql`: Controlled seeding of the initial Platform Administration organisation and administrator user.
 
 ### Manual Migration Check (CLI)
 If connecting directly to PostgreSQL:
