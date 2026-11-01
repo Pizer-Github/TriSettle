@@ -70,6 +70,8 @@ jobs:
 
       - name: Run Unit Tests
         run: npm run test
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
 
   docker-validation:
     name: Docker Configuration Validation
