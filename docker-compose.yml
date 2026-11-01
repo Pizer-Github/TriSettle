@@ -55,6 +55,8 @@ services:
       SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
+    volumes:
+      - document_data:/var/app/documents
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     healthcheck:
@@ -84,6 +86,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  document_data:
     driver: local
 
 networks:

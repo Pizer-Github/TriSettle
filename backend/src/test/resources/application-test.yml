@@ -8,6 +8,8 @@ spring:
     locations: classpath:db/migration
 
 app:
+  storage:
+    root: ${java.io.tmpdir}/trisettle-test-documents
   jwt:
     secret: test-secret-key-that-is-at-least-64-characters-long-for-hmac-sha256-signing
     expiration-ms: 3600000

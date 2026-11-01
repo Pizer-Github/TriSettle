@@ -44,6 +44,8 @@ spring:
       order: 1
 
 app:
+  storage:
+    root: ${APP_STORAGE_ROOT:/var/app/documents}
   jwt:
     secret: ${JWT_SECRET}
     expiration-ms: ${JWT_EXPIRATION_MS:3600000}

@@ -32,8 +32,10 @@ WORKDIR /app
 # Copy the built jar from the build stage
 COPY --from=build /workspace/target/*.jar app.jar
 
-# Ensure non-root ownership
-RUN chown appuser:appgroup app.jar
+# Ensure non-root ownership and initialize storage volume directory
+RUN chown appuser:appgroup app.jar && \
+    mkdir -p /var/app/documents && \
+    chown -R appuser:appgroup /var/app/documents
 
 USER appuser
 
