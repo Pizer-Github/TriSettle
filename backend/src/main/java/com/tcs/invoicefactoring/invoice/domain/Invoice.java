@@ -55,7 +55,7 @@ public class Invoice {
     @Column(name = "status", nullable = false, length = 30)
     private String status;
 
-    @Column(name = "rejection_reason")
+    @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
 
     @Column(name = "submitted_at")

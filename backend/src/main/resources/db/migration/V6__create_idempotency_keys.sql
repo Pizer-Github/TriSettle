@@ -9,7 +9,7 @@ CREATE TABLE idempotency_keys (
     user_id          UUID NOT NULL,
     endpoint         VARCHAR(255) NOT NULL,
     key              VARCHAR(255) NOT NULL,
-    request_hash     CHAR(64) NOT NULL,
+    request_hash     VARCHAR(64) NOT NULL,
     status           VARCHAR(20) NOT NULL CHECK (status IN ('PROCESSING', 'SUCCESS', 'FAILED')),
     fencing_token    UUID NOT NULL DEFAULT gen_random_uuid(),
     response_code    INT,

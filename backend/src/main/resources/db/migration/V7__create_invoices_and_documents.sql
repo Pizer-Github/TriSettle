@@ -53,7 +53,7 @@ CREATE TABLE invoice_documents (
     file_size_bytes      BIGINT NOT NULL CHECK (file_size_bytes > 0 AND file_size_bytes <= 10485760), -- Max 10MB
     mime_type            VARCHAR(100) NOT NULL CHECK (mime_type = 'application/pdf'),
     storage_path         VARCHAR(500) NOT NULL,
-    sha256_checksum      CHAR(64) NOT NULL,
+    sha256_checksum      VARCHAR(64) NOT NULL,
     uploaded_by          UUID NOT NULL,
     uploaded_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
