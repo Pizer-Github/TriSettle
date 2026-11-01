@@ -15,6 +15,12 @@ spring:
     user: app_owner
     password: ${POSTGRES_PASSWORD:change_me_strong_password}
 
+app:
+  admin:
+    bootstrap:
+      email: admin@platform.local
+      password: ${BOOTSTRAP_ADMIN_PASSWORD:Admin@DevBootstrap2026!}
+
 management:
   endpoint:
     health:

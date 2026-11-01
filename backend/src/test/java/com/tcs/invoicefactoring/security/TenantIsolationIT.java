@@ -26,16 +26,19 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tenant Isolation and Row-Level Security (RLS) Integration Tests.
  *
  * Tests execute against actual PostgreSQL instances using the runtime application role (app_worker).
  * Verifies that:
- * - SME cannot read another SME's organizations, users, or memberships.
- * - Financier cannot read another Financier's private data.
+ * - SME cannot read or write another SME's organizations, users, or memberships.
+ * - Financier cannot read another Financier's or SME's private data.
+ * - Platform Admin context allows administrative visibility across tenants.
  * - Missing tenant context fails closed (0 rows returned).
  * - Context is transaction-local (is_local=true) and cannot leak between transactions.
+ * - Aspect auto-binds context inside transactional boundaries.
  * - Authentication lookup function (SECURITY DEFINER) returns only the specific authenticated user.
  */
 @SpringBootTest
@@ -203,6 +206,35 @@ class TenantIsolationIT {
 
     @Test
     @Transactional
+    void crossTenantWrite_isBlockedByRlsPolicy() {
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+        rlsContextService.establishContext(smeOrg1Id, "SME");
+
+        // Attempt cross-tenant update: SME 1 tries to update SME 2's organisation
+        int updated = entityManager.createNativeQuery(
+                "UPDATE organizations SET name = 'Tampered Name' WHERE id = :targetId"
+        ).setParameter("targetId", smeOrg2Id).executeUpdate();
+
+        // RLS USING policy ensures 0 rows are found/modified
+        assertThat(updated).isZero();
+
+        // Attempt cross-tenant insert: SME 1 tries to insert a membership pointing to SME 2's org
+        assertThatThrownBy(() -> {
+            entityManager.createNativeQuery(
+                    "INSERT INTO user_organizations (id, user_id, org_id, role, is_active, created_at) " +
+                    "VALUES (:id, :userId, :orgId, 'SME', true, NOW())"
+            )
+            .setParameter("id", UUID.randomUUID())
+            .setParameter("userId", smeUser1Id)
+            .setParameter("orgId", smeOrg2Id)
+            .executeUpdate();
+        }).hasMessageContaining("violates row-level security policy");
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+    }
+
+    @Test
+    @Transactional
     void financierTenant_canOnlyReadOwnData_smeDataInvisible() {
         entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
 
@@ -213,6 +245,22 @@ class TenantIsolationIT {
         List<UUID> visibleOrgIds = entityManager.createNativeQuery("SELECT id FROM organizations", UUID.class).getResultList();
         assertThat(visibleOrgIds).containsExactly(financierOrgId);
         assertThat(visibleOrgIds).doesNotContain(smeOrg1Id, smeOrg2Id);
+
+        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+    }
+
+    @Test
+    @Transactional
+    void adminContext_hasPlatformVisibilityAcrossTenants() {
+        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+
+        // Establish ADMIN context
+        rlsContextService.establishContext(UUID.randomUUID(), "ADMIN");
+
+        @SuppressWarnings("unchecked")
+        List<UUID> visibleOrgIds = entityManager.createNativeQuery("SELECT id FROM organizations", UUID.class).getResultList();
+        // Admin policy allows viewing all organizations
+        assertThat(visibleOrgIds).contains(smeOrg1Id, smeOrg2Id, financierOrgId);
 
         entityManager.createNativeQuery("RESET ROLE").executeUpdate();
     }

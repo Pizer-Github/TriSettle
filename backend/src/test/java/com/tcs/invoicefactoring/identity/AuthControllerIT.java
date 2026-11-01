@@ -128,8 +128,8 @@ class AuthControllerIT {
 
     @Test
     void adminAuthentication_worksThroughControlledProvisioningOnly() throws Exception {
-        // Authenticate with seeded administrator credentials (from V5 migration)
-        LoginRequest adminLogin = new LoginRequest("admin@platform.local", "Admin@Secure2026!");
+        // Authenticate with provisioned administrator credentials (from AdminBootstrapRunner via test profile)
+        LoginRequest adminLogin = new LoginRequest("admin@platform.local", "Admin@TestBootstrap2026!");
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

@@ -2,7 +2,6 @@ spring:
   application:
     name: invoice-factoring-backend
 
-  # Datasource (overridden per profile / Docker env vars)
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/invoice_factoring}
     username: ${SPRING_DATASOURCE_USERNAME:app_worker}
@@ -15,12 +14,8 @@ spring:
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
-      # CRITICAL: Reset transaction-local RLS context on connection return.
-      # app.tenant_id is set with is_local=true, so it auto-resets at tx end.
-      # This connection-init-sql enforces the runtime role on every connection.
       connection-init-sql: "SET application_name = 'invoice-factoring-app'"
 
-  # JPA / Hibernate
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
@@ -34,7 +29,6 @@ spring:
         order_inserts: true
         order_updates: true
 
-  # Flyway — migrations run as app_owner (schema owner role)
   flyway:
     enabled: true
     url: ${SPRING_FLYWAY_URL:${spring.datasource.url}}
@@ -45,18 +39,19 @@ spring:
     validate-on-migrate: true
     out-of-order: false
 
-  # Security
   security:
     filter:
       order: 1
 
-# JWT configuration (secret loaded from environment — never hardcoded)
 app:
   jwt:
     secret: ${JWT_SECRET}
     expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+  admin:
+    bootstrap:
+      email: ${BOOTSTRAP_ADMIN_EMAIL:}
+      password: ${BOOTSTRAP_ADMIN_PASSWORD:}
 
-# Actuator — expose health only by default; full access restricted in prod
 management:
   endpoints:
     web:
@@ -66,7 +61,6 @@ management:
     health:
       show-details: when-authorized
 
-# Logging defaults (overridden in profile-specific configs)
 logging:
   level:
     root: INFO
