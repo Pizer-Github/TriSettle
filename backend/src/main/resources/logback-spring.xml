@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- ── Properties ─────────────────────────────────────────────────── -->
+    <springProperty name="appName" source="spring.application.name" defaultValue="invoice-factoring"/>
+    <springProperty name="activeProfile" source="spring.profiles.active" defaultValue="default"/>
+
+    <!-- ── Console appender (plain text for local dev) ────────────────── -->
+    <appender name="CONSOLE_PLAIN" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ── JSON appender (structured, for production / CI) ────────────── -->
+    <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"application":"${appName}","profile":"${activeProfile}"}</customFields>
+            <!-- Exclude sensitive fields — NEVER log passwords, tokens, JWTs -->
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
+            <includeMdcKeyName>userId</includeMdcKeyName>
+            <includeMdcKeyName>orgId</includeMdcKeyName>
+        </encoder>
+    </appender>
+
+    <!-- ── Profile-specific root config ───────────────────────────────── -->
+    <springProfile name="local">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_PLAIN"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </root>
+    </springProfile>
+
+    <!-- Default (no profile active — e.g. test) -->
+    <springProfile name="!local &amp; !prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_PLAIN"/>
+        </root>
+    </springProfile>
+
+    <!-- Suppress noisy framework loggers -->
+    <logger name="org.hibernate.orm.jdbc.bind" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+</configuration>

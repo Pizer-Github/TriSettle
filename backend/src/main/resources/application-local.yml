@@ -1,0 +1,28 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/invoice_factoring
+    username: app_worker
+    password: ${APP_DB_PASSWORD:change_me_worker_password}
+    hikari:
+      maximum-pool-size: 5
+
+  flyway:
+    url: jdbc:postgresql://localhost:5432/invoice_factoring
+    user: app_owner
+    password: ${POSTGRES_PASSWORD:change_me_strong_password}
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.tcs.invoicefactoring: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
