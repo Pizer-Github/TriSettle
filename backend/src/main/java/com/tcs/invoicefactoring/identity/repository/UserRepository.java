@@ -43,6 +43,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /**
      * Narrowly scoped user lookup by ID for token re-validation.
      */
-    @Query(value = "SELECT user_id AS id, email, password_hash, full_name, is_active, is_email_verified FROM auth_lookup_user_by_id(:userId)", nativeQuery = true)
+    @Query(value = "SELECT user_id AS id, email, password_hash, full_name, is_active, is_email_verified, NOW() AS created_at, NOW() AS updated_at FROM auth_lookup_user_by_id(:userId)", nativeQuery = true)
     Optional<User> findActiveUserById(@Param("userId") UUID userId);
 }
