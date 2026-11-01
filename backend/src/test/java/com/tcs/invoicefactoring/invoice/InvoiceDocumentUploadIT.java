@@ -93,7 +93,6 @@ class InvoiceDocumentUploadIT {
     }
 
     @Test
-    @Transactional
     void uploadDocument_validPdf_attachesDocumentWithVersion1() throws Exception {
         String token = registerSme("sme-doc1@example.com", "SME Doc 1 Org");
         String invoiceId = createInvoice(token);
@@ -113,7 +112,6 @@ class InvoiceDocumentUploadIT {
     }
 
     @Test
-    @Transactional
     void uploadDocument_replacementPdf_incrementsVersionAndPreservesPrevious() throws Exception {
         String token = registerSme("sme-doc2@example.com", "SME Doc 2 Org");
         String invoiceId = createInvoice(token);
@@ -148,7 +146,6 @@ class InvoiceDocumentUploadIT {
     }
 
     @Test
-    @Transactional
     void uploadDocument_globalHashDuplicateAcrossDifferentSmes_returns409WithoutLeakingOtherSmeData() throws Exception {
         String token1 = registerSme("sme-global1@example.com", "SME 1 Org");
         String invoiceId1 = createInvoice(token1);
@@ -181,7 +178,6 @@ class InvoiceDocumentUploadIT {
     }
 
     @Test
-    @Transactional
     void uploadDocument_invalidMagicBytes_returns400BadRequest() throws Exception {
         String token = registerSme("sme-magic@example.com", "SME Magic Org");
         String invoiceId = createInvoice(token);

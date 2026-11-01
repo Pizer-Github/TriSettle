@@ -75,7 +75,6 @@ class InvoiceCreationIT {
     }
 
     @Test
-    @Transactional
     void createInvoice_validRequest_returns201WithDraftStatusAndExactAmounts() throws Exception {
         CreateInvoiceRequest req = new CreateInvoiceRequest(
                 "Tata Motors Limited",
@@ -104,7 +103,6 @@ class InvoiceCreationIT {
     }
 
     @Test
-    @Transactional
     void createInvoice_duplicateInvoiceNumber_returns409Conflict() throws Exception {
         String invoiceNum = "DUP-INV-" + UUID.randomUUID();
         CreateInvoiceRequest req = new CreateInvoiceRequest(
@@ -139,7 +137,6 @@ class InvoiceCreationIT {
     }
 
     @Test
-    @Transactional
     void createInvoice_idempotencyReplay_returnsCachedResponse() throws Exception {
         String key = UUID.randomUUID().toString();
         CreateInvoiceRequest req = new CreateInvoiceRequest(
@@ -175,7 +172,6 @@ class InvoiceCreationIT {
     }
 
     @Test
-    @Transactional
     void createInvoice_idempotencyMismatchedPayload_returns409Conflict() throws Exception {
         String key = UUID.randomUUID().toString();
         CreateInvoiceRequest req1 = new CreateInvoiceRequest(
@@ -221,7 +217,6 @@ class InvoiceCreationIT {
     }
 
     @Test
-    @Transactional
     void createInvoice_invalidGstinChecksum_returns400() throws Exception {
         CreateInvoiceRequest req = new CreateInvoiceRequest(
                 "Tata Motors Limited",
@@ -246,7 +241,6 @@ class InvoiceCreationIT {
     }
 
     @Test
-    @Transactional
     void createInvoice_dueDateBeforeInvoiceDate_returns400() throws Exception {
         CreateInvoiceRequest req = new CreateInvoiceRequest(
                 "Tata Motors Limited",
@@ -270,7 +264,6 @@ class InvoiceCreationIT {
     }
 
     @Test
-    @Transactional
     void createInvoice_amountMismatch_returns400() throws Exception {
         CreateInvoiceRequest req = new CreateInvoiceRequest(
                 "Tata Motors Limited",

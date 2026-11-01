@@ -123,7 +123,6 @@ class InvoiceTenantIsolationIT {
     }
 
     @Test
-    @Transactional
     void sme1_cannotRead_sme2_invoice_returns404() throws Exception {
         String token1 = registerSme("sme-iso1@example.com", "SME Org 1");
         String token2 = registerSme("sme-iso2@example.com", "SME Org 2");
@@ -137,7 +136,6 @@ class InvoiceTenantIsolationIT {
     }
 
     @Test
-    @Transactional
     void sme1_cannotDownload_sme2_document_returns404() throws Exception {
         String token1 = registerSme("sme-iso3@example.com", "SME Org 3");
         String token2 = registerSme("sme-iso4@example.com", "SME Org 4");
@@ -152,7 +150,6 @@ class InvoiceTenantIsolationIT {
     }
 
     @Test
-    @Transactional
     void sme1_cannotSubmit_sme2_invoice_returns404() throws Exception {
         String token1 = registerSme("sme-iso5@example.com", "SME Org 5");
         String token2 = registerSme("sme-iso6@example.com", "SME Org 6");
@@ -168,7 +165,6 @@ class InvoiceTenantIsolationIT {
     }
 
     @Test
-    @Transactional
     void admin_canView_sme1_invoice_returns200() throws Exception {
         String tokenSme = registerSme("sme-adminview@example.com", "SME Admin View Org");
         String adminToken = getAdminToken();
@@ -183,7 +179,6 @@ class InvoiceTenantIsolationIT {
     }
 
     @Test
-    @Transactional
     void missingContext_failsClosedUnderRls() {
         // Without setting tenant context, querying under app_worker returns 0 rows
         assertThat(invoiceRepository.findAll()).isEmpty();

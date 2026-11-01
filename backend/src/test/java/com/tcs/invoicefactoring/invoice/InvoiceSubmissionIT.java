@@ -104,7 +104,6 @@ class InvoiceSubmissionIT {
     }
 
     @Test
-    @Transactional
     void submitInvoice_withActiveDocument_transitionsToPendingVerification() throws Exception {
         String token = registerSme("sme-submit1@example.com", "SME Submit 1 Org");
         String invoiceId = createInvoice(token);
@@ -120,7 +119,6 @@ class InvoiceSubmissionIT {
     }
 
     @Test
-    @Transactional
     void submitInvoice_withoutDocument_returns400BadRequest() throws Exception {
         String token = registerSme("sme-submit2@example.com", "SME Submit 2 Org");
         String invoiceId = createInvoice(token); // No document attached
@@ -133,7 +131,6 @@ class InvoiceSubmissionIT {
     }
 
     @Test
-    @Transactional
     void submitInvoice_alreadySubmitted_returns409Conflict() throws Exception {
         String token = registerSme("sme-submit3@example.com", "SME Submit 3 Org");
         String invoiceId = createInvoice(token);
@@ -154,7 +151,6 @@ class InvoiceSubmissionIT {
     }
 
     @Test
-    @Transactional
     void uploadDocument_afterSubmission_returns409Conflict() throws Exception {
         String token = registerSme("sme-submit4@example.com", "SME Submit 4 Org");
         String invoiceId = createInvoice(token);
