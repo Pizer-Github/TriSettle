@@ -1,16 +1,9 @@
 package com.tcs.invoicefactoring.security;
 
-import com.tcs.invoicefactoring.migration.FlywayMigrationTest;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 
@@ -19,32 +12,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link JwtService}.
- * Verifies token generation, validation, and claim extraction.
- * Uses Testcontainers for Spring context (Flyway must pass to start).
+ * Verifies token generation, claim extraction, signature validation, and tamper detection.
+ * Focused unit test suite: independent of database, Flyway migrations, and Spring context.
  */
-@SpringBootTest
-@Testcontainers
-@ActiveProfiles("test")
 class JwtServiceTest {
 
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.4-alpine")
-            .withDatabaseName("test_db")
-            .withUsername("test_owner")
-            .withPassword("test_password");
+    private static final String TEST_SECRET =
+            "ci-dummy-jwt-secret-key-that-is-at-least-64-characters-long-for-hmac-sha256-signing";
+    private static final long EXPIRATION_MS = 3600000;
 
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("spring.flyway.url", postgres::getJdbcUrl);
-        registry.add("spring.flyway.user", postgres::getUsername);
-        registry.add("spring.flyway.password", postgres::getPassword);
-    }
-
-    @Autowired
     private JwtService jwtService;
+
+    @BeforeEach
+    void setUp() {
+        jwtService = new JwtService(TEST_SECRET, EXPIRATION_MS);
+    }
 
     @Test
     void generateToken_thenValidate_returnsCorrectClaims() {
@@ -72,6 +54,20 @@ class JwtServiceTest {
         String tamperedToken = token.substring(0, token.lastIndexOf('.') + 1) + "tampered_signature";
 
         assertThatThrownBy(() -> jwtService.validateAndExtract(tamperedToken))
-                .isInstanceOf(io.jsonwebtoken.JwtException.class);
+                .isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void constructor_withShortSecret_throwsIllegalArgumentException() {
+        String shortSecret = "too-short-secret-less-than-64-characters";
+        assertThatThrownBy(() -> new JwtService(shortSecret, EXPIRATION_MS))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least 64 characters");
+    }
+
+    @Test
+    void constructor_withNullSecret_throwsIllegalArgumentException() {
+        assertThatThrownBy(() -> new JwtService(null, EXPIRATION_MS))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }
