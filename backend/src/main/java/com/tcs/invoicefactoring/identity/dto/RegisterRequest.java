@@ -1,14 +1,17 @@
 package com.tcs.invoicefactoring.identity.dto;
 
-import com.tcs.invoicefactoring.identity.domain.Organization;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
- * User registration request DTO.
- * Used by the initial user provisioning endpoint.
+ * Public SME user and organization registration request.
+ *
+ * Security rules:
+ * - Public self-service registration is strictly restricted to SMEs.
+ * - Neither role nor organizationType is accepted from the client.
+ * - FINANCIER, BUYER, and PLATFORM organizations must be provisioned via
+ *   controlled, authenticated administrative onboarding workflows.
  */
 public record RegisterRequest(
 
@@ -25,10 +28,7 @@ public record RegisterRequest(
         @Size(min = 2, max = 255, message = "Full name must be between 2 and 255 characters")
         String fullName,
 
-        @NotBlank(message = "Organisation name is required")
-        @Size(min = 2, max = 255)
-        String organizationName,
-
-        @NotNull(message = "Organisation type is required")
-        Organization.OrgType organizationType
+        @NotBlank(message = "Company name is required")
+        @Size(min = 2, max = 255, message = "Company name must be between 2 and 255 characters")
+        String organizationName
 ) {}

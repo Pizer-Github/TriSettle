@@ -3,7 +3,6 @@ package com.tcs.invoicefactoring.identity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tcs.invoicefactoring.identity.dto.LoginRequest;
 import com.tcs.invoicefactoring.identity.dto.RegisterRequest;
-import com.tcs.invoicefactoring.identity.domain.Organization;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -18,13 +17,16 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.Map;
+
 import static org.hamcrest.Matchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
- * Integration tests for authentication endpoints.
- * Tests the full HTTP → Controller → Service → Repository → DB path.
+ * Integration tests for authentication endpoints and security boundaries.
+ * Includes regression tests for privilege escalation prevention.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -56,13 +58,12 @@ class AuthControllerIT {
 
     @Test
     @Transactional
-    void register_withValidRequest_returns201WithToken() throws Exception {
+    void register_withValidRequest_returns201WithSmeToken() throws Exception {
         RegisterRequest request = new RegisterRequest(
-                "newuser@example.com",
+                "smeuser@example.com",
                 "SecurePassword123!",
-                "Test User",
-                "Test SME Ltd",
-                Organization.OrgType.SME
+                "SME Founder",
+                "Acme Supplies Pvt Ltd"
         );
 
         mockMvc.perform(post("/api/v1/auth/register")
@@ -74,19 +75,39 @@ class AuthControllerIT {
                 .andExpect(jsonPath("$.data.userId").isNotEmpty())
                 .andExpect(jsonPath("$.data.orgId").isNotEmpty())
                 .andExpect(jsonPath("$.data.role").value("SME"))
-                .andExpect(jsonPath("$.data.fullName").value("Test User"));
+                .andExpect(jsonPath("$.data.fullName").value("SME Founder"));
     }
 
     @Test
     @Transactional
-    void register_thenLogin_returnsToken() throws Exception {
-        // Register
+    void register_attemptingPrivilegeEscalation_alwaysProvisionsSmeOnly() throws Exception {
+        // Attacker attempts to inject PLATFORM org_type and ADMIN role via raw JSON payload
+        Map<String, Object> maliciousPayload = Map.of(
+                "email", "attacker@evil.com",
+                "password", "AttackerPassword123!",
+                "fullName", "Malicious Actor",
+                "organizationName", "Fake Platform Org",
+                "organizationType", "PLATFORM",
+                "role", "ADMIN"
+        );
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(maliciousPayload)))
+                .andExpect(status().isCreated())
+                // Assert that the injected administrative role was strictly rejected
+                .andExpect(jsonPath("$.data.role").value("SME"))
+                .andExpect(jsonPath("$.data.role").value(not("ADMIN")));
+    }
+
+    @Test
+    @Transactional
+    void register_thenLogin_returnsVerifiedSmeToken() throws Exception {
         RegisterRequest registerRequest = new RegisterRequest(
                 "logintest@example.com",
                 "SecurePassword123!",
                 "Login Test User",
-                "Login Test Org",
-                Organization.OrgType.FINANCIER
+                "Login Test Org"
         );
 
         mockMvc.perform(post("/api/v1/auth/register")
@@ -94,7 +115,6 @@ class AuthControllerIT {
                         .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isCreated());
 
-        // Login
         LoginRequest loginRequest = new LoginRequest("logintest@example.com", "SecurePassword123!");
 
         mockMvc.perform(post("/api/v1/auth/login")
@@ -103,11 +123,24 @@ class AuthControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.token").isNotEmpty())
-                .andExpect(jsonPath("$.data.role").value("FINANCIER"));
+                .andExpect(jsonPath("$.data.role").value("SME"));
     }
 
     @Test
-    void login_withInvalidCredentials_returns401() throws Exception {
+    void adminAuthentication_worksThroughControlledProvisioningOnly() throws Exception {
+        // Authenticate with seeded administrator credentials (from V5 migration)
+        LoginRequest adminLogin = new LoginRequest("admin@platform.local", "Admin@Secure2026!");
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(adminLogin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.role").value("ADMIN"));
+    }
+
+    @Test
+    void login_withInvalidCredentials_returns401WithoutLeakingInternals() throws Exception {
         LoginRequest request = new LoginRequest("nonexistent@example.com", "WrongPassword1!");
 
         mockMvc.perform(post("/api/v1/auth/login")
@@ -116,7 +149,6 @@ class AuthControllerIT {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.errorCode").value("INVALID_CREDENTIALS"))
-                // Assert no internal details are leaked
                 .andExpect(jsonPath("$.message").value(not(containsString("stack"))))
                 .andExpect(jsonPath("$.message").value(not(containsString("Exception"))));
     }
@@ -127,8 +159,7 @@ class AuthControllerIT {
                 "not-an-email",
                 "SecurePassword123!",
                 "Test User",
-                "Test Org",
-                Organization.OrgType.SME
+                "Test Org"
         );
 
         mockMvc.perform(post("/api/v1/auth/register")
@@ -148,17 +179,14 @@ class AuthControllerIT {
                 "duplicate@example.com",
                 "SecurePassword123!",
                 "Test User",
-                "Test Org",
-                Organization.OrgType.SME
+                "Test Org"
         );
 
-        // First registration succeeds
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        // Duplicate fails
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -168,14 +196,13 @@ class AuthControllerIT {
 
     @Test
     void actuatorHealth_isPublic_returns200() throws Exception {
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/actuator/health"))
+        mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk());
     }
 
     @Test
     void protectedEndpoint_withoutToken_returns401Or403() throws Exception {
-        // Any non-public endpoint without a token should be blocked
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/protected"))
+        mockMvc.perform(get("/api/v1/protected"))
                 .andExpect(status().is4xxClientError());
     }
 }
