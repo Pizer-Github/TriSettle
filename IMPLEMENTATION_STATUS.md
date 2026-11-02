@@ -98,34 +98,36 @@
 - Generic Error Mapping: Maps unique constraint violations (`uq_global_document_sha256`) to generic `DUPLICATE_DOCUMENT` without exposing third-party tenant information.
 
 ### 5. Automated Tests & Verification
-- Unit Tests (Local Execution): 46 passing tests (0 failures, 0 errors, 0 skipped):
+- Unit Tests (Local & CI Execution): 46 passing tests (0 failures, 0 errors, 0 skipped):
   - `IdempotencyServiceTest` (8 tests)
   - `DocumentStorageServiceTest` (4 tests)
   - `GstinValidatorTest` (14 tests)
   - `FinancialAmountValidatorTest` (9 tests)
   - `InvoiceServiceTest` (7 tests)
   - `JwtServiceTest` (4 tests)
-- Integration Tests Authored (CI Execution via Testcontainers):
-  - `InvoiceCreationIT` (7 scenarios)
-  - `InvoiceDocumentUploadIT` (4 scenarios)
-  - `InvoiceSubmissionIT` (4 scenarios)
-  - `InvoiceTenantIsolationIT` (5 scenarios)
-  - `IdempotencyFencingIT` (2 scenarios)
-- Source Compilation: 14 test source files and 39 main source files compile cleanly with zero errors (`BUILD SUCCESS`).
+- Integration Tests (Executed in CI via Testcontainers PostgreSQL 16.4): 38 tests (0 failures, 0 errors, 0 skipped):
+  - `AuthControllerIT` (9 tests)
+  - `InvoiceCreationIT` (7 tests)
+  - `InvoiceDocumentUploadIT` (4 tests)
+  - `InvoiceSubmissionIT` (4 tests)
+  - `InvoiceTenantIsolationIT` (5 tests)
+  - `TenantIsolationIT` (8 tests)
+  - `IdempotencyFencingIT` (1 test)
+- Total Backend Automated Tests Executed in CI: **85 tests (0 failures, 0 errors, 0 skipped)**.
 
 ---
 
 ## Command Execution & Verification Evidence
 
-| Step / Command | Target | Local Result | CI Result | Classification |
+| Step / Command | Target | Local Result | CI Result (Run 41462625194) | Classification |
 |---|---|---|---|:---:|
-| `git status` / `git log` | Repository Integrity & Commit History | Clean working tree, linear commits | Verified | **PASS** |
-| `cd backend; .\mvnw.cmd test-compile` | Maven Test Source Compilation | All 39 main & 14 test classes compile cleanly (`BUILD SUCCESS`) | Verified | **PASS** |
-| `cd backend; .\mvnw.cmd test -Dtest=...` | Unit Test Suite (46 tests) | 46 passed, 0 failed, 0 errors, 0 skipped (`BUILD SUCCESS`) | Verified | **PASS** |
-| `.github/workflows/ci.yml` | CI Pipeline Definition & Headless Launcher | Configured with `mvnw clean verify`, `npm ci`, `npm run test` (ChromeHeadlessCustom), `docker compose config` | Pre-flight validated | **PASS** |
-| `npm --prefix frontend i --package-lock-only` | Frontend Lockfile Generation | 482 KB `package-lock.json` generated & audited | Stored in repo | **PASS** |
-| `cd backend; ./mvnw clean verify -B` | Full Integration Test Suite (Testcontainers) | Host lacks Docker daemon for containerized PostgreSQL | GitHub Actions `backend` job | **READY FOR CI** |
-| `cd frontend; npm ci && npm run test` | Angular 17 / Karma Unit Test Suite | Headless Chrome in Ubuntu runner | GitHub Actions `frontend` job | **READY FOR CI** |
-| `docker compose --env-file .env.example config` | Compose & Dockerfile Configuration | Host lacks Docker daemon | GitHub Actions `docker-validation` job | **READY FOR CI** |
+| `git status` / `git log` | Repository Integrity & Commit History | Clean working tree, linear commits | Commit `7c04d29` | **PASS** |
+| `cd backend; .\mvnw.cmd test-compile` | Maven Test Source Compilation | All classes compile cleanly (`BUILD SUCCESS`, exit code 0) | Verified in CI | **PASS** |
+| `cd backend; .\mvnw.cmd test -Dtest=...` | Unit Test Suite (46 tests) | 46 passed, 0 failed, 0 errors, 0 skipped (`BUILD SUCCESS`) | 47 passed (incl. Flyway) | **PASS** |
+| `cd backend; ./mvnw clean verify -B` | Full Integration Test Suite (Testcontainers) | Host lacks Docker daemon | 85 passed, 0 failed, 0 skipped | **PASS** |
+| `cd frontend; npm ci && npm run test` | Angular 17 / Karma Unit Test Suite | Node 20 / Angular CLI | 3 specs passed, 0 failures | **PASS** |
+| `docker compose --env-file .env.example config` | Compose & Dockerfile Configuration | Compose syntax & Dockerfile checks | Validated successfully | **PASS** |
 
-*Note: All automated tests, container builds, and lockfile installations are fully configured in `.github/workflows/ci.yml`. When the repository is connected to a remote and pushed, GitHub Actions runners execute the full test suites.*
+*CI Workflow Run URL:* https://github.com/Pizer-Github/TriSettle/actions/runs/41462625194
+*Commit Tested:* `7c04d29654b038d15d316f67f0c6dcf310f0e3f4`
+*All 3 CI Jobs (`Backend`, `Frontend`, `Docker Configuration Validation`) green.*
