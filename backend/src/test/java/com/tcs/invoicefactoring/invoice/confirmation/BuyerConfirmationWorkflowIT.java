@@ -41,8 +41,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -134,7 +133,8 @@ class BuyerConfirmationWorkflowIT {
         mockMvc.perform(get("/api/v1/buyer/confirmations/document")
                         .header("X-Confirmation-Session", sessionToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").doesNotExist()); // PDF binary stream
+                .andExpect(header().string("Content-Type", "application/pdf"))
+                .andExpect(content().string(containsString("%PDF-1.4")));
 
         // 5. Buyer responds with CONFIRMED
         SubmitConfirmationRequest confirmReq = new SubmitConfirmationRequest(
@@ -341,7 +341,7 @@ class BuyerConfirmationWorkflowIT {
                 .path("data").path("id").asText();
 
         // Upload PDF document
-        byte[] pdfContent = "%PDF-1.4 sample invoice content".getBytes(StandardCharsets.UTF_8);
+        byte[] pdfContent = ("%PDF-1.4 sample invoice content for " + invoiceNumber).getBytes(StandardCharsets.UTF_8);
         MockMultipartFile file = new MockMultipartFile("file", "invoice-" + invoiceNumber + ".pdf", "application/pdf", pdfContent);
 
         mockMvc.perform(multipart("/api/v1/invoices/" + invoiceId + "/documents")
