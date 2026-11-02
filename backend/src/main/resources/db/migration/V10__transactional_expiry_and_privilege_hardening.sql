@@ -506,3 +506,19 @@ $$;
 ALTER FUNCTION public.fn_submit_buyer_confirmation_response(VARCHAR, BIGINT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, VARCHAR, TEXT, JSONB, VARCHAR, INT, TEXT, TEXT, INT) OWNER TO buyer_confirmation_definer;
 REVOKE ALL ON FUNCTION public.fn_submit_buyer_confirmation_response(VARCHAR, BIGINT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, VARCHAR, TEXT, JSONB, VARCHAR, INT, TEXT, TEXT, INT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_submit_buyer_confirmation_response(VARCHAR, BIGINT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, VARCHAR, TEXT, JSONB, VARCHAR, INT, TEXT, TEXT, INT) TO app_worker;
+
+-- 4. Authoritative Verification Trigger Hardening:
+--    Grant SELECT on invoice_documents to buyer_confirmation_definer and establish RLS policy
+--    so fn_trg_check_invoice_verified_has_confirmation can verify active document checksums.
+GRANT SELECT ON public.invoice_documents TO buyer_confirmation_definer;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'invoice_documents' AND policyname = 'definer_invoice_docs_access'
+    ) THEN
+        CREATE POLICY definer_invoice_docs_access ON public.invoice_documents
+            FOR SELECT TO buyer_confirmation_definer USING (true);
+    END IF;
+END $$;

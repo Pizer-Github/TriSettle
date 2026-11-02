@@ -57,6 +57,15 @@ public class InvoiceVerificationTriggerIT {
     private static final String VALID_CHECKSUM = "a1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef";
     private static final String PENDING_CHECKSUM = "b1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef";
 
+    private static String sha256(String input) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            return java.util.HexFormat.of().formatHex(digest.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static Connection getOwnerConnection() throws Exception {
         return DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     }
@@ -169,15 +178,32 @@ public class InvoiceVerificationTriggerIT {
 
     @Test
     void authorizedDefiner_transitionToVerified_withValidConfirmedResponse_succeeds() throws Exception {
+        UUID validRespId = UUID.randomUUID();
+        UUID validReqId = UUID.randomUUID();
+
         // Run transition as buyer_confirmation_definer role
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(false);
             try (Statement st = conn.createStatement()) {
+                // Request for INV_PENDING_ID
+                st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@trg.local', '%s', 'PENDING', NOW() + INTERVAL '7 days')",
+                        validReqId, INV_PENDING_ID, SME_ORG_ID, BUYER_ORG_ID, sha256("validtoken123")));
+
+                // Response with matching document checksum (PENDING_CHECKSUM)
+                String canonConfirmed = String.format("{\"action\":\"CONFIRMED\",\"document_sha256\":\"%s\"}", PENDING_CHECKSUM);
+                st.executeUpdate(String.format(
+                        "INSERT INTO buyer_confirmation_responses (id, request_id, invoice_id, sme_org_id, action, auth_channel, identity_assurance, client_ip, user_agent_hash, canonical_evidence_text, evidence_payload, evidence_sha256) " +
+                                "VALUES ('%s', '%s', '%s', '%s', 'CONFIRMED', 'TOKEN_LINK', 'BEARER_TOKEN_POSSESSION', '192.168.1.1', 'uahash', '%s', '%s'::jsonb, encode(digest('%s', 'sha256'), 'hex'))",
+                        validRespId, validReqId, INV_PENDING_ID, SME_ORG_ID, canonConfirmed, canonConfirmed, canonConfirmed
+                ));
+
                 st.execute("SET ROLE buyer_confirmation_definer");
 
                 // Transitioning to VERIFIED with valid response ID and matching document checksum succeeds
-                st.executeUpdate(String.format("UPDATE invoices SET status = 'VERIFIED', verified_confirmation_id = '%s' WHERE id = '%s'",
-                        RESP_CONFIRMED_ID, INV_VERIFIED_ID));
+                int updated = st.executeUpdate(String.format("UPDATE invoices SET status = 'VERIFIED', verified_confirmation_id = '%s' WHERE id = '%s'",
+                        validRespId, INV_PENDING_ID));
+                assertThat(updated).isEqualTo(1);
             }
             conn.rollback();
         }
@@ -207,7 +233,8 @@ public class InvoiceVerificationTriggerIT {
             try (Statement st = conn.createStatement()) {
                 // Request for INV_PENDING_ID
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
-                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@trg.local', 'tokenmismatch123456789012345678901234567890123456789012345678901234', 'PENDING', NOW() + INTERVAL '7 days')", mismatchedReqId, INV_PENDING_ID, SME_ORG_ID, BUYER_ORG_ID));
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@trg.local', '%s', 'PENDING', NOW() + INTERVAL '7 days')",
+                        mismatchedReqId, INV_PENDING_ID, SME_ORG_ID, BUYER_ORG_ID, sha256("mismatchtoken123")));
 
                 // Response with mismatched document checksum
                 String canonMismatch = "{\"action\":\"CONFIRMED\",\"document_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}";
@@ -235,6 +262,8 @@ public class InvoiceVerificationTriggerIT {
             try (Statement st = conn.createStatement()) {
                 assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET status = 'DRAFT' WHERE id = '" + INV_VERIFIED_ID + "'"))
                         .hasMessageContaining("VERIFIED_INVOICE_IMMUTABLE");
+
+                conn.rollback();
 
                 assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET verified_confirmation_id = gen_random_uuid() WHERE id = '" + INV_VERIFIED_ID + "'"))
                         .hasMessageContaining("VERIFIED_INVOICE_CONFIRMATION_IMMUTABLE");

@@ -34,6 +34,8 @@ import com.tcs.invoicefactoring.invoice.exception.InvalidInvoiceStateException;
 import com.tcs.invoicefactoring.invoice.exception.InvoiceNotFoundException;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceDocumentRepository;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -68,6 +70,13 @@ public class BuyerConfirmationMutationService {
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager transactionManager;
     private final SecureRandom secureRandom = new SecureRandom();
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public void setEntityManager(EntityManager entityManager) {
+        this.entityManager = entityManager;
+    }
 
     public BuyerConfirmationMutationService(
             InvoiceRepository invoiceRepository,
@@ -228,6 +237,9 @@ public class BuyerConfirmationMutationService {
         // Step 2: Lock request SECOND
         BuyerConfirmationRequest req = requestRepository.findForUpdate(initialReq.getId())
                 .orElseThrow(() -> new InvalidConfirmationTokenException("Confirmation request not found"));
+        if (entityManager != null) {
+            entityManager.refresh(req);
+        }
 
         // Step 3: Lock sessions deterministically
         List<BuyerConfirmationSession> activeSessions = sessionRepository.findActiveByRequestId(req.getId());
@@ -557,6 +569,9 @@ public class BuyerConfirmationMutationService {
 
         req = requestRepository.findForUpdate(req.getId())
                 .orElseThrow(() -> new InvalidConfirmationTokenException("Confirmation request [" + requestId + "] not found"));
+        if (entityManager != null) {
+            entityManager.refresh(req);
+        }
         if (!"PENDING".equals(req.getStatus())) {
             throw new InvalidInvoiceStateException("Only PENDING confirmation requests can be cancelled (status: " + req.getStatus() + ")");
         }
