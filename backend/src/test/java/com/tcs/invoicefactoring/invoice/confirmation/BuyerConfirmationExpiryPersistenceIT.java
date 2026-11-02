@@ -35,6 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Testcontainers
 @ActiveProfiles("test")
+@org.junit.jupiter.api.TestMethodOrder(org.junit.jupiter.api.MethodOrderer.OrderAnnotation.class)
 public class BuyerConfirmationExpiryPersistenceIT {
 
     @Container
@@ -145,14 +146,25 @@ public class BuyerConfirmationExpiryPersistenceIT {
     }
 
     @Test
+    @org.junit.jupiter.api.Order(1)
     void directSql_fnExchangeToken_expiredRequest_commitsExpiredState() throws Exception {
+        UUID testInvId = UUID.randomUUID();
+        UUID testReqId = UUID.randomUUID();
+        String testToken = "sql-exp-token-" + UUID.randomUUID();
+
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(true);
             try (Statement st = conn.createStatement()) {
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-%s', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", testInvId, SME_ORG_ID, UUID.randomUUID().toString().substring(0, 8), SME_USER_ID));
+
+                st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() - INTERVAL '1 hour')", testReqId, testInvId, SME_ORG_ID, BUYER_ORG_ID, sha256(testToken)));
+
                 st.execute("SET ROLE app_worker");
                 ResultSet rs = st.executeQuery(String.format(
                         "SELECT * FROM fn_exchange_buyer_confirmation_token('%s', 'newsesshash', '192.168.1.20', 'uahash', 'TOKEN_LINK', NULL, NULL)",
-                        sha256(RAW_TOKEN_SQL)
+                        sha256(testToken)
                 ));
                 assertThat(rs.next()).isTrue();
                 assertThat(rs.getString("outcome_status")).isEqualTo("EXPIRED");
@@ -162,13 +174,14 @@ public class BuyerConfirmationExpiryPersistenceIT {
 
         // Verify state is permanently committed through independent connection
         try (Connection conn = getIndependentConnection(); Statement st = conn.createStatement()) {
-            ResultSet rs = st.executeQuery("SELECT status FROM buyer_confirmation_requests WHERE id = '" + REQ_SQL_EXP_ID + "'");
+            ResultSet rs = st.executeQuery("SELECT status FROM buyer_confirmation_requests WHERE id = '" + testReqId + "'");
             assertThat(rs.next()).isTrue();
             assertThat(rs.getString("status")).isEqualTo("EXPIRED");
         }
     }
 
     @Test
+    @org.junit.jupiter.api.Order(2)
     void directSql_fnAcquireLease_expiredSession_commitsExpiredState() throws Exception {
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(true);
@@ -192,8 +205,24 @@ public class BuyerConfirmationExpiryPersistenceIT {
     }
 
     @Test
+    @org.junit.jupiter.api.Order(3)
     void httpPath_tokenExchange_afterExpiry_returns410AndPersistsExpiredStatus() throws Exception {
-        TokenExchangeRequest req = new TokenExchangeRequest(RAW_TOKEN_HTTP);
+        UUID testInvId = UUID.randomUUID();
+        UUID testReqId = UUID.randomUUID();
+        String testToken = "http-exp-token-" + UUID.randomUUID();
+
+        try (Connection conn = getOwnerConnection()) {
+            conn.setAutoCommit(true);
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-%s', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", testInvId, SME_ORG_ID, UUID.randomUUID().toString().substring(0, 8), SME_USER_ID));
+
+                st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() - INTERVAL '2 hours')", testReqId, testInvId, SME_ORG_ID, BUYER_ORG_ID, sha256(testToken)));
+            }
+        }
+
+        TokenExchangeRequest req = new TokenExchangeRequest(testToken);
 
         mockMvc.perform(post("/api/v1/buyer/confirmations/exchange")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -203,13 +232,14 @@ public class BuyerConfirmationExpiryPersistenceIT {
 
         // Verify database persistence via independent connection
         try (Connection conn = getIndependentConnection(); Statement st = conn.createStatement()) {
-            ResultSet rs = st.executeQuery("SELECT status FROM buyer_confirmation_requests WHERE id = '" + REQ_HTTP_EXP_ID + "'");
+            ResultSet rs = st.executeQuery("SELECT status FROM buyer_confirmation_requests WHERE id = '" + testReqId + "'");
             assertThat(rs.next()).isTrue();
             assertThat(rs.getString("status")).isEqualTo("EXPIRED");
         }
     }
 
     @Test
+    @org.junit.jupiter.api.Order(4)
     void httpPath_acquireLeaseAndSubmit_afterExpiry_returns410AndPersistsExpiredStatus() throws Exception {
         SubmitConfirmationRequest req = new SubmitConfirmationRequest(
                 "CONFIRMED", null, "All good", "buyer@exp.local"
@@ -232,6 +262,7 @@ public class BuyerConfirmationExpiryPersistenceIT {
     }
 
     @Test
+    @org.junit.jupiter.api.Order(5)
     void expiryReaperTask_fnMarkRequestExpired_batchesAndExpiresRequests() throws Exception {
         UUID batchInvId = UUID.randomUUID();
         UUID batchReqId = UUID.randomUUID();

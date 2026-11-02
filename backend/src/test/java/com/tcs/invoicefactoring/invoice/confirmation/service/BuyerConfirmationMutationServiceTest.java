@@ -169,7 +169,7 @@ class BuyerConfirmationMutationServiceTest {
         when(throttleRepository.findByClientIp("127.0.0.1")).thenReturn(Optional.empty());
         when(requestRepository.findBySecureTokenHash(any())).thenReturn(Optional.of(req));
         when(invoiceRepository.findForUpdate(invoiceId, smeOrgId)).thenReturn(Optional.of(testInvoice));
-        when(requestRepository.findById(req.getId())).thenReturn(Optional.of(req));
+        when(requestRepository.findForUpdate(req.getId())).thenReturn(Optional.of(req));
         when(sessionRepository.findActiveByRequestId(req.getId())).thenReturn(Collections.emptyList());
         when(sessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 

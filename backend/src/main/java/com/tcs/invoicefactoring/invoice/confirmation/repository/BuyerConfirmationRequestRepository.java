@@ -16,6 +16,10 @@ public interface BuyerConfirmationRequestRepository extends JpaRepository<BuyerC
 
     Optional<BuyerConfirmationRequest> findBySecureTokenHash(String secureTokenHash);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM BuyerConfirmationRequest r WHERE r.id = :id")
+    Optional<BuyerConfirmationRequest> findForUpdate(@Param("id") UUID id);
+
     @Query("""
             SELECT r FROM BuyerConfirmationRequest r
             WHERE r.invoiceId = :invoiceId

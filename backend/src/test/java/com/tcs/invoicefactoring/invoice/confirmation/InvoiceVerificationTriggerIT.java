@@ -106,7 +106,7 @@ public class InvoiceVerificationTriggerIT {
 
                 // Requests (with valid 64-character hash)
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
-                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@trg.local', 'tokenhash12345678901234567890123456789012345678901234567890123456', 'PENDING', NOW() + INTERVAL '7 days')", REQ_ID, INV_VERIFIED_ID, SME_ORG_ID, BUYER_ORG_ID));
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@trg.local', '1234567890123456789012345678901234567890123456789012345678901234', 'PENDING', NOW() + INTERVAL '7 days')", REQ_ID, INV_VERIFIED_ID, SME_ORG_ID, BUYER_ORG_ID));
 
                 // Response (CONFIRMED)
                 String canonConfirmed = String.format("{\"action\":\"CONFIRMED\",\"document_sha256\":\"%s\"}", VALID_CHECKSUM);

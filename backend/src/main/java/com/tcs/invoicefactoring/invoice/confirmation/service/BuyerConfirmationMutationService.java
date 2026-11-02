@@ -226,7 +226,7 @@ public class BuyerConfirmationMutationService {
                 .orElseThrow(() -> new InvoiceNotFoundException("Invoice [" + initialReq.getInvoiceId() + "] not found"));
 
         // Step 2: Lock request SECOND
-        BuyerConfirmationRequest req = requestRepository.findById(initialReq.getId())
+        BuyerConfirmationRequest req = requestRepository.findForUpdate(initialReq.getId())
                 .orElseThrow(() -> new InvalidConfirmationTokenException("Confirmation request not found"));
 
         // Step 3: Lock sessions deterministically
@@ -555,7 +555,8 @@ public class BuyerConfirmationMutationService {
         invoiceRepository.findForUpdate(req.getInvoiceId(), smeOrgId)
                 .orElseThrow(() -> new InvoiceNotFoundException("Invoice not found"));
 
-        req = requestRepository.findById(req.getId()).orElseThrow();
+        req = requestRepository.findForUpdate(req.getId())
+                .orElseThrow(() -> new InvalidConfirmationTokenException("Confirmation request [" + requestId + "] not found"));
         if (!"PENDING".equals(req.getStatus())) {
             throw new InvalidInvoiceStateException("Only PENDING confirmation requests can be cancelled (status: " + req.getStatus() + ")");
         }

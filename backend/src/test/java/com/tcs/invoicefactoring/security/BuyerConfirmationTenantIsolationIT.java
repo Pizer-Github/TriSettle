@@ -192,16 +192,20 @@ public class BuyerConfirmationTenantIsolationIT {
                 int updated = st.executeUpdate("UPDATE buyer_confirmation_requests SET recipient_email = 'hacked@hack.com' WHERE id = '" + REQ2_ID + "'");
                 assertThat(updated).isEqualTo(0);
 
+                // INSERT: Cannot insert request with SME2 tenant ID (RLS WITH CHECK fails)
+                assertThatThrownBy(() -> st.executeUpdate(String.format(
+                        "INSERT INTO buyer_confirmation_requests (invoice_id, sme_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
+                                "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'bad@bad.com', '%s', 'PENDING', NOW() + INTERVAL '1 day')",
+                        INV2_ID, SME2_ORG_ID, sha256("badtoken1")
+                ))).hasMessageContaining("violates row-level security policy");
+
+                conn.rollback();
+                st.execute("SET LOCAL app.tenant_id = '" + SME1_ORG_ID + "'");
+                st.execute("SET LOCAL app.tenant_type = 'SME'");
+
                 // DELETE: Cannot delete SME2's request (app_worker has no DELETE grant on table)
                 assertThatThrownBy(() -> st.executeUpdate("DELETE FROM buyer_confirmation_requests WHERE id = '" + REQ2_ID + "'"))
                         .hasMessageContaining("permission denied for table buyer_confirmation_requests");
-
-                // INSERT: Cannot insert request with SME2 tenant ID
-                assertThatThrownBy(() -> st.executeUpdate(String.format(
-                        "INSERT INTO buyer_confirmation_requests (invoice_id, sme_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
-                                "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'bad@bad.com', 'badtoken12345678901234567890123456789012345678901234567890123456', 'PENDING', NOW() + INTERVAL '1 day')",
-                        INV2_ID, SME2_ORG_ID
-                ))).hasMessageContaining("violates row-level security policy");
             }
         }
     }
