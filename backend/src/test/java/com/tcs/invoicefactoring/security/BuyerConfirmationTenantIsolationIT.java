@@ -85,6 +85,12 @@ public class BuyerConfirmationTenantIsolationIT {
 
     @BeforeAll
     static void seedTenantsAndRequests() throws Exception {
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(false);
 
@@ -117,10 +123,10 @@ public class BuyerConfirmationTenantIsolationIT {
             }
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, ?)")) {
-                ps.setObject(1, INV1_ID); ps.setObject(2, SME1_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-ISO-001"); ps.setString(7, "PENDING_VERIFICATION"); ps.addBatch();
-                ps.setObject(1, INV2_ID); ps.setObject(2, SME2_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-ISO-002"); ps.setString(7, "PENDING_VERIFICATION"); ps.addBatch();
+                    "INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, ?, ?)")) {
+                ps.setObject(1, INV1_ID); ps.setObject(2, SME1_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-ISO-001"); ps.setString(7, "PENDING_VERIFICATION"); ps.setObject(8, SME1_USER_ID); ps.addBatch();
+                ps.setObject(1, INV2_ID); ps.setObject(2, SME2_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-ISO-002"); ps.setString(7, "PENDING_VERIFICATION"); ps.setObject(8, SME2_USER_ID); ps.addBatch();
                 ps.executeBatch();
             }
 

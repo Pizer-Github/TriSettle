@@ -70,6 +70,12 @@ public class InvoiceVerificationTriggerIT {
 
     @BeforeAll
     static void setupTestData() throws Exception {
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(false);
 
@@ -80,19 +86,19 @@ public class InvoiceVerificationTriggerIT {
                 st.executeUpdate(String.format("INSERT INTO user_organizations (user_id, org_id, role) VALUES ('%s', '%s', 'SME'), ('%s', '%s', 'BUYER')", SME_USER_ID, SME_ORG_ID, BUYER_USER_ID, BUYER_ORG_ID));
                 st.executeUpdate(String.format("INSERT INTO organization_tax_profiles (org_id, gstin, is_verified, verified_by_user_id, status) VALUES ('%s', '27AAACT2727Q1ZW', true, '%s', 'ACTIVE')", BUYER_ORG_ID, BUYER_USER_ID));
 
-                // Invoices
-                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION')", INV_PENDING_ID, SME_ORG_ID));
+                // Invoices (including created_by)
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INV_PENDING_ID, SME_ORG_ID, SME_USER_ID));
 
-                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-002', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION')", INV_VERIFIED_ID, SME_ORG_ID));
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-002', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INV_VERIFIED_ID, SME_ORG_ID, SME_USER_ID));
 
-                // Documents
-                st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by_user_id) " +
-                        "VALUES ('%s', '%s', 'inv1.pdf', '/inv1.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_PENDING_ID, INV_PENDING_ID, VALID_CHECKSUM, SME_USER_ID));
+                // Documents (sme_org_id and uploaded_by)
+                st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
+                        "VALUES ('%s', '%s', '%s', 'inv1.pdf', '/inv1.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_PENDING_ID, INV_PENDING_ID, SME_ORG_ID, VALID_CHECKSUM, SME_USER_ID));
 
-                st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by_user_id) " +
-                        "VALUES ('%s', '%s', 'inv2.pdf', '/inv2.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_VERIFIED_ID, INV_VERIFIED_ID, VALID_CHECKSUM, SME_USER_ID));
+                st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
+                        "VALUES ('%s', '%s', '%s', 'inv2.pdf', '/inv2.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_VERIFIED_ID, INV_VERIFIED_ID, SME_ORG_ID, VALID_CHECKSUM, SME_USER_ID));
 
                 // Requests
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +

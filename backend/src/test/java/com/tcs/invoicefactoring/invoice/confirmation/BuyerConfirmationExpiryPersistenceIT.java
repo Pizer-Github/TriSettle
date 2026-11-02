@@ -96,6 +96,12 @@ public class BuyerConfirmationExpiryPersistenceIT {
 
     @BeforeAll
     static void setupExpiredData() throws Exception {
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(false);
             try (Statement st = conn.createStatement()) {
@@ -105,25 +111,25 @@ public class BuyerConfirmationExpiryPersistenceIT {
                 st.executeUpdate(String.format("INSERT INTO organization_tax_profiles (org_id, gstin, is_verified, verified_by_user_id, status) VALUES ('%s', '27AAACT2727Q1ZW', true, '%s', 'ACTIVE')", BUYER_ORG_ID, BUYER_USER_ID));
 
                 // 1. For direct SQL exchange test: expired request
-                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION')", INVOICE_SQL_EXP_ID, SME_ORG_ID));
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INVOICE_SQL_EXP_ID, SME_ORG_ID, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                         "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() - INTERVAL '1 hour')", REQ_SQL_EXP_ID, INVOICE_SQL_EXP_ID, SME_ORG_ID, BUYER_ORG_ID, sha256(RAW_TOKEN_SQL)));
 
                 // 2. For HTTP exchange test: expired request
-                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-002', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION')", INVOICE_HTTP_EXP_ID, SME_ORG_ID));
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-002', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INVOICE_HTTP_EXP_ID, SME_ORG_ID, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                         "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() - INTERVAL '2 hours')", REQ_HTTP_EXP_ID, INVOICE_HTTP_EXP_ID, SME_ORG_ID, BUYER_ORG_ID, sha256(RAW_TOKEN_HTTP)));
 
                 // 3. For Session & Response HTTP test: active request, but session with past expires_at
-                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-003', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION')", INVOICE_SESS_EXP_ID, SME_ORG_ID));
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-003', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INVOICE_SESS_EXP_ID, SME_ORG_ID, SME_USER_ID));
 
-                st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by_user_id) " +
-                        "VALUES ('%s', '%s', 'doc.pdf', '/doc.pdf', 1024, 'application/pdf', 'dummychecksum', true, '%s')", UUID.randomUUID(), INVOICE_SESS_EXP_ID, SME_USER_ID));
+                st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
+                        "VALUES ('%s', '%s', '%s', 'doc.pdf', '/doc.pdf', 1024, 'application/pdf', 'dummychecksum', true, '%s')", UUID.randomUUID(), INVOICE_SESS_EXP_ID, SME_ORG_ID, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                         "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', 'tokenhashsess111', 'PENDING', NOW() + INTERVAL '7 days')", REQ_SESS_EXP_ID, INVOICE_SESS_EXP_ID, SME_ORG_ID, BUYER_ORG_ID));
@@ -231,8 +237,8 @@ public class BuyerConfirmationExpiryPersistenceIT {
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(true);
             try (Statement st = conn.createStatement()) {
-                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-REAPER-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION')", batchInvId, SME_ORG_ID));
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-REAPER-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", batchInvId, SME_ORG_ID, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                         "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', 'tokenhashreaper111', 'PENDING', NOW() - INTERVAL '3 hours')", batchReqId, batchInvId, SME_ORG_ID, BUYER_ORG_ID));

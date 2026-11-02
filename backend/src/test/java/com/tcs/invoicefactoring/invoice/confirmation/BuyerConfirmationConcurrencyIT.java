@@ -109,8 +109,8 @@ public class BuyerConfirmationConcurrencyIT {
 
     private void seedInvoiceAndRequest(UUID invoiceId, UUID requestId, String rawToken) throws Exception {
         try (Connection conn = getConnection(); Statement st = conn.createStatement()) {
-            st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                    "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Conc Org', 'AAACT2727Q', 'INV-%s', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION')", invoiceId, SME_ORG_ID, UUID.randomUUID().toString().substring(0, 8)));
+            st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                    "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Conc Org', 'AAACT2727Q', 'INV-%s', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", invoiceId, SME_ORG_ID, UUID.randomUUID().toString().substring(0, 8), SME_USER_ID));
 
             st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                     "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@conc.local', '%s', 'PENDING', NOW() + INTERVAL '7 days')", requestId, invoiceId, SME_ORG_ID, BUYER_ORG_ID, sha256(rawToken)));

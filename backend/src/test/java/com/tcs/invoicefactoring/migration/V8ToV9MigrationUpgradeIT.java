@@ -96,19 +96,19 @@ public class V8ToV9MigrationUpgradeIT {
 
             // Invoices
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, ?)")) {
-                ps.setObject(1, INVOICE_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-001"); ps.setString(7, "PENDING_VERIFICATION"); ps.addBatch();
-                ps.setObject(1, INVOICE2_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-002"); ps.setString(7, "PENDING_VERIFICATION"); ps.addBatch();
+                    "INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, ?, ?)")) {
+                ps.setObject(1, INVOICE_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-001"); ps.setString(7, "PENDING_VERIFICATION"); ps.setObject(8, SME_USER_ID); ps.addBatch();
+                ps.setObject(1, INVOICE2_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-002"); ps.setString(7, "PENDING_VERIFICATION"); ps.setObject(8, SME_USER_ID); ps.addBatch();
                 ps.executeBatch();
             }
 
             // Invoice Documents
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO invoice_documents (id, invoice_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by_user_id) " +
-                            "VALUES (?, ?, 'invoice.pdf', '/storage/invoice.pdf', 2048, 'application/pdf', ?, true, ?)")) {
-                ps.setObject(1, DOC_ID); ps.setObject(2, INVOICE_ID); ps.setString(3, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"); ps.setObject(4, SME_USER_ID); ps.addBatch();
-                ps.setObject(1, DOC2_ID); ps.setObject(2, INVOICE2_ID); ps.setString(3, "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"); ps.setObject(4, SME_USER_ID); ps.addBatch();
+                    "INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
+                            "VALUES (?, ?, ?, 'invoice.pdf', '/storage/invoice.pdf', 2048, 'application/pdf', ?, true, ?)")) {
+                ps.setObject(1, DOC_ID); ps.setObject(2, INVOICE_ID); ps.setObject(3, SME_ORG_ID); ps.setString(4, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"); ps.setObject(5, SME_USER_ID); ps.addBatch();
+                ps.setObject(1, DOC2_ID); ps.setObject(2, INVOICE2_ID); ps.setObject(3, SME_ORG_ID); ps.setString(4, "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"); ps.setObject(5, SME_USER_ID); ps.addBatch();
                 ps.executeBatch();
             }
 
