@@ -113,9 +113,11 @@ public class InvoiceMutationService {
         int maxVersion = documentRepository.findMaxVersionByInvoiceId(invoiceId);
 
         // Deactivate previous active document without deleting its historical physical file or row
+        // Flush the update immediately so the partial unique index uq_invoice_single_active_doc
+        // does not conflict when the new active document is inserted
         documentRepository.findByInvoiceIdAndActiveTrue(invoiceId).ifPresent(activeDoc -> {
             activeDoc.setActive(false);
-            documentRepository.save(activeDoc);
+            documentRepository.saveAndFlush(activeDoc);
         });
 
         InvoiceDocument newDoc = new InvoiceDocument();

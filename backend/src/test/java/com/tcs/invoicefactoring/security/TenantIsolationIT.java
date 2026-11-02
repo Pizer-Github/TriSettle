@@ -91,72 +91,74 @@ class TenantIsolationIT {
     private String smeUser1Email;
 
     @BeforeEach
-    @Transactional
     void setupTenants() {
-        // Ensure test_owner creates seeded data
-        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+        transactionTemplate.execute(status -> {
+            // Ensure test_owner creates seeded data
+            entityManager.createNativeQuery("RESET ROLE").executeUpdate();
 
-        // Tenant 1: SME 1
-        Organization sme1 = new Organization();
-        sme1.setName("Alpha Manufacturers Ltd");
-        sme1.setOrgType(Organization.OrgType.SME);
-        organizationRepository.save(sme1);
-        smeOrg1Id = sme1.getId();
+            // Tenant 1: SME 1
+            Organization sme1 = new Organization();
+            sme1.setName("Alpha Manufacturers Ltd");
+            sme1.setOrgType(Organization.OrgType.SME);
+            organizationRepository.save(sme1);
+            smeOrg1Id = sme1.getId();
 
-        smeUser1Email = "founder@alpha-" + UUID.randomUUID() + ".com";
-        User u1 = new User();
-        u1.setEmail(smeUser1Email);
-        u1.setPasswordHash(passwordEncoder.encode("Secret123!"));
-        u1.setFullName("Alpha Founder");
-        userRepository.save(u1);
-        smeUser1Id = u1.getId();
+            smeUser1Email = "founder@alpha-" + UUID.randomUUID() + ".com";
+            User u1 = new User();
+            u1.setEmail(smeUser1Email);
+            u1.setPasswordHash(passwordEncoder.encode("Secret123!"));
+            u1.setFullName("Alpha Founder");
+            userRepository.save(u1);
+            smeUser1Id = u1.getId();
 
-        UserOrganization uo1 = new UserOrganization();
-        uo1.setUser(u1);
-        uo1.setOrganization(sme1);
-        uo1.setRole("SME");
-        userOrgRepository.save(uo1);
+            UserOrganization uo1 = new UserOrganization();
+            uo1.setUser(u1);
+            uo1.setOrganization(sme1);
+            uo1.setRole("SME");
+            userOrgRepository.save(uo1);
 
-        // Tenant 2: SME 2
-        Organization sme2 = new Organization();
-        sme2.setName("Beta Logistics Ltd");
-        sme2.setOrgType(Organization.OrgType.SME);
-        organizationRepository.save(sme2);
-        smeOrg2Id = sme2.getId();
+            // Tenant 2: SME 2
+            Organization sme2 = new Organization();
+            sme2.setName("Beta Logistics Ltd");
+            sme2.setOrgType(Organization.OrgType.SME);
+            organizationRepository.save(sme2);
+            smeOrg2Id = sme2.getId();
 
-        User u2 = new User();
-        u2.setEmail("ceo@beta-" + UUID.randomUUID() + ".com");
-        u2.setPasswordHash(passwordEncoder.encode("Secret123!"));
-        u2.setFullName("Beta CEO");
-        userRepository.save(u2);
-        smeUser2Id = u2.getId();
+            User u2 = new User();
+            u2.setEmail("ceo@beta-" + UUID.randomUUID() + ".com");
+            u2.setPasswordHash(passwordEncoder.encode("Secret123!"));
+            u2.setFullName("Beta CEO");
+            userRepository.save(u2);
+            smeUser2Id = u2.getId();
 
-        UserOrganization uo2 = new UserOrganization();
-        uo2.setUser(u2);
-        uo2.setOrganization(sme2);
-        uo2.setRole("SME");
-        userOrgRepository.save(uo2);
+            UserOrganization uo2 = new UserOrganization();
+            uo2.setUser(u2);
+            uo2.setOrganization(sme2);
+            uo2.setRole("SME");
+            userOrgRepository.save(uo2);
 
-        // Tenant 3: Financier
-        Organization fin = new Organization();
-        fin.setName("Global Capital Partners");
-        fin.setOrgType(Organization.OrgType.FINANCIER);
-        organizationRepository.save(fin);
-        financierOrgId = fin.getId();
+            // Tenant 3: Financier
+            Organization fin = new Organization();
+            fin.setName("Global Capital Partners");
+            fin.setOrgType(Organization.OrgType.FINANCIER);
+            organizationRepository.save(fin);
+            financierOrgId = fin.getId();
 
-        User u3 = new User();
-        u3.setEmail("investor@global-" + UUID.randomUUID() + ".com");
-        u3.setPasswordHash(passwordEncoder.encode("Secret123!"));
-        u3.setFullName("Capital Investor");
-        userRepository.save(u3);
+            User u3 = new User();
+            u3.setEmail("investor@global-" + UUID.randomUUID() + ".com");
+            u3.setPasswordHash(passwordEncoder.encode("Secret123!"));
+            u3.setFullName("Capital Investor");
+            userRepository.save(u3);
 
-        UserOrganization uo3 = new UserOrganization();
-        uo3.setUser(u3);
-        uo3.setOrganization(fin);
-        uo3.setRole("FINANCIER");
-        userOrgRepository.save(uo3);
+            UserOrganization uo3 = new UserOrganization();
+            uo3.setUser(u3);
+            uo3.setOrganization(fin);
+            uo3.setRole("FINANCIER");
+            userOrgRepository.save(uo3);
 
-        entityManager.flush();
+            entityManager.flush();
+            return null;
+        });
     }
 
     @Test
