@@ -1,7 +1,10 @@
 package com.tcs.invoicefactoring.invoice.confirmation.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -20,6 +23,53 @@ class EvidenceSerializationServiceTest {
     }
 
     @Test
+    @DisplayName("RFC 8785 Section 3.2.2: Object key sorting follows UTF-16 code units")
+    void rfc8785_section322_objectKeySorting() {
+        // Test vector from RFC 8785 Section 3.2.2
+        String input = "{\n" +
+                "  \"\\u20ac\": \"Euro Sign\",\n" +
+                "  \"\\r\": \"Carriage Return\",\n" +
+                "  \"1\": \"One\",\n" +
+                "  \"true\": \"True\",\n" +
+                "  \"a\": \"Letter A\",\n" +
+                "  \"\\u0080\": \"Control Character\"\n" +
+                "}";
+
+        String expected = "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"a\":\"Letter A\",\"true\":\"True\",\"\u0080\":\"Control Character\",\"\u20ac\":\"Euro Sign\"}";
+        String actual = service.canonicalize(input);
+        assertThat(actual).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("RFC 8785 Section 3.2.1: Whitespace is stripped outside string literals")
+    void rfc8785_whitespaceStripping() {
+        String input = "{\n  \"b\" :   2 , \n  \"a\" : 1 \n }";
+        String expected = "{\"a\":1,\"b\":2}";
+        assertThat(service.canonicalize(input)).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("RFC 8785 Section 3.2.2.2: Forward slashes are not escaped")
+    void rfc8785_forwardSlashNotEscaped() {
+        String input = "{\"url\": \"https://example.com/api/v1/invoices\"}";
+        String expected = "{\"url\":\"https://example.com/api/v1/invoices\"}";
+        assertThat(service.canonicalize(input)).isEqualTo(expected);
+    }
+
+    @ParameterizedTest(name = "RFC 8785 Appendix B: {0} canonicalizes to {1}")
+    @CsvSource(delimiter = ';', value = {
+            "{\"n\": 0} ; {\"n\":0}",
+            "{\"n\": 1e23} ; {\"n\":1e+23}",
+            "{\"n\": 1e21} ; {\"n\":1e+21}",
+            "{\"n\": 0.000001} ; {\"n\":0.000001}",
+            "{\"n\": 9.999999999999997e-7} ; {\"n\":9.999999999999997e-7}",
+            "{\"n\": 333333333.3333332} ; {\"n\":333333333.3333332}"
+    })
+    void rfc8785_appendixB_numberSerialization(String rawInput, String expectedCanonical) {
+        assertThat(service.canonicalize(rawInput)).isEqualTo(expectedCanonical);
+    }
+
+    @Test
     void canonicalJson_keysAreSortedLexicographically() {
         UUID invoiceId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID smeOrgId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -33,7 +83,7 @@ class EvidenceSerializationServiceTest {
         String canonical = service.buildCanonicalEvidence(
                 "CONFIRMED",
                 "PORTAL_USER",
-                "27AABCU9603R1ZM",
+                "27AAACT2727Q1ZW",
                 buyerOrgId,
                 null,
                 timestamp,
@@ -83,13 +133,13 @@ class EvidenceSerializationServiceTest {
         Instant now = Instant.now();
 
         String c1 = service.buildCanonicalEvidence(
-                "CONFIRMED", "TOKEN_LINK", "27AABCU9603R1ZM", null, "test@example.com", now, null,
+                "CONFIRMED", "TOKEN_LINK", "27AAACT2727Q1ZW", null, "test@example.com", now, null,
                 "abc", LocalDate.now(), "BEARER_TOKEN_POSSESSION", LocalDate.now(), invoiceId, "INV-1",
                 "ok", null, requestId, smeOrgId, BigDecimal.ZERO, BigDecimal.TEN, BigDecimal.TEN
         );
 
         String c2 = service.buildCanonicalEvidence(
-                "CONFIRMED", "TOKEN_LINK", "27AABCU9603R1ZM", null, "test@example.com", now, null,
+                "CONFIRMED", "TOKEN_LINK", "27AAACT2727Q1ZW", null, "test@example.com", now, null,
                 "abc", LocalDate.now(), "BEARER_TOKEN_POSSESSION", LocalDate.now(), invoiceId, "INV-1",
                 "ok", null, requestId, smeOrgId, BigDecimal.ZERO, BigDecimal.TEN, BigDecimal.TEN
         );

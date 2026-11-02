@@ -2,10 +2,10 @@ package com.tcs.invoicefactoring.invoice.confirmation.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.tcs.invoicefactoring.invoice.confirmation.dto.EvidenceRecord;
+import org.erdtman.jcs.JsonCanonicalizer;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -14,27 +14,48 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.UUID;
 
 /**
- * Authoritative server-side evidence serialization service conforming to RFC 8785 (JSON Canonicalization Scheme).
- * Constructs canonical JSON representation from locked database records and trusted authentication context.
+ * Authoritative server-side evidence serialization service conforming strictly to RFC 8785 (JSON Canonicalization Scheme - JCS).
+ * Produces deterministic, byte-for-byte canonical JSON representations from locked database records and trusted authentication context.
  */
 @Service
 public class EvidenceSerializationService {
 
-    private final ObjectMapper canonicalMapper;
+    private final ObjectMapper objectMapper;
 
     public EvidenceSerializationService() {
-        this.canonicalMapper = new ObjectMapper();
-        this.canonicalMapper.findAndRegisterModules();
-        this.canonicalMapper.configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
+        this.objectMapper = new ObjectMapper();
+        this.objectMapper.findAndRegisterModules();
     }
 
     /**
-     * Builds the deterministic canonical RFC 8785 JSON representation of the confirmation evidence.
+     * Canonicalizes any raw JSON string according to RFC 8785.
+     */
+    public String canonicalize(String rawJson) {
+        try {
+            return new JsonCanonicalizer(rawJson).getEncodedString();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Invalid JSON for canonicalization", e);
+        }
+    }
+
+    /**
+     * Canonicalizes raw UTF-8 JSON bytes according to RFC 8785.
+     */
+    public byte[] canonicalizeBytes(byte[] utf8JsonBytes) {
+        try {
+            return new JsonCanonicalizer(utf8JsonBytes).getEncodedUTF8();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Invalid JSON bytes for canonicalization", e);
+        }
+    }
+
+    /**
+     * Builds the deterministic canonical RFC 8785 JSON representation of confirmation evidence.
      */
     public String buildCanonicalEvidence(
             String action,
@@ -58,8 +79,7 @@ public class EvidenceSerializationService {
             BigDecimal taxableAmount,
             BigDecimal totalAmount
     ) {
-        // TreeMap guarantees Unicode code point lexicographical ordering of keys
-        Map<String, Object> map = new TreeMap<>();
+        Map<String, Object> map = new LinkedHashMap<>();
         map.put("action", action);
         map.put("auth_channel", authChannel);
         map.put("buyer_gstin", buyerGstin);
@@ -82,9 +102,10 @@ public class EvidenceSerializationService {
         map.put("total_amount", totalAmount.setScale(2).toPlainString());
 
         try {
-            return canonicalMapper.writeValueAsString(map);
+            String rawJson = objectMapper.writeValueAsString(map);
+            return canonicalize(rawJson);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize canonical evidence", e);
+            throw new IllegalStateException("Failed to construct raw evidence JSON", e);
         }
     }
 
