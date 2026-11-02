@@ -39,6 +39,59 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getHttpStatus()).body(error);
     }
 
+    // ── Buyer Confirmation exceptions ─────────────────────────────────────────
+
+    @ExceptionHandler(com.tcs.invoicefactoring.invoice.confirmation.exception.RateLimitExceededException.class)
+    public ResponseEntity<ApiError> handleRateLimit(com.tcs.invoicefactoring.invoice.confirmation.exception.RateLimitExceededException ex, HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        log.warn("Rate limit exceeded — path={} correlationId={}", request.getRequestURI(), correlationId);
+        ApiError error = ApiError.of(ErrorCode.RATE_LIMIT_EXCEEDED.name(), ex.getMessage(), correlationId);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(error);
+    }
+
+    @ExceptionHandler(com.tcs.invoicefactoring.invoice.confirmation.exception.ConfirmationSessionExpiredException.class)
+    public ResponseEntity<ApiError> handleConfirmationExpired(com.tcs.invoicefactoring.invoice.confirmation.exception.ConfirmationSessionExpiredException ex, HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        log.warn("Confirmation expired — path={} correlationId={}", request.getRequestURI(), correlationId);
+        ApiError error = ApiError.of(ErrorCode.CONFIRMATION_EXPIRED.name(), ex.getMessage(), correlationId);
+        return ResponseEntity.status(HttpStatus.GONE).body(error);
+    }
+
+    @ExceptionHandler({
+            com.tcs.invoicefactoring.invoice.confirmation.exception.ConfirmationLeaseException.class,
+            com.tcs.invoicefactoring.invoice.confirmation.exception.FencingGenerationException.class
+    })
+    public ResponseEntity<ApiError> handleConfirmationConcurrency(RuntimeException ex, HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        log.warn("Confirmation concurrency/fencing conflict — path={} correlationId={}", request.getRequestURI(), correlationId);
+        ApiError error = ApiError.of(ErrorCode.IDEMPOTENCY_CONFLICT.name(), ex.getMessage(), correlationId);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(com.tcs.invoicefactoring.invoice.confirmation.exception.BuyerTaxProfileException.class)
+    public ResponseEntity<ApiError> handleBuyerTaxProfile(com.tcs.invoicefactoring.invoice.confirmation.exception.BuyerTaxProfileException ex, HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        log.warn("Buyer tax profile unauthorized — path={} correlationId={}", request.getRequestURI(), correlationId);
+        ApiError error = ApiError.of(ErrorCode.BUYER_NOT_AUTHORIZED.name(), ex.getMessage(), correlationId);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    @ExceptionHandler(com.tcs.invoicefactoring.invoice.confirmation.exception.InvalidConfirmationTokenException.class)
+    public ResponseEntity<ApiError> handleInvalidToken(com.tcs.invoicefactoring.invoice.confirmation.exception.InvalidConfirmationTokenException ex, HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        log.warn("Invalid confirmation token — path={} correlationId={}", request.getRequestURI(), correlationId);
+        ApiError error = ApiError.of(ErrorCode.BUYER_CONFIRMATION_INVALID.name(), ex.getMessage(), correlationId);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(com.tcs.invoicefactoring.invoice.confirmation.exception.BuyerConfirmationException.class)
+    public ResponseEntity<ApiError> handleGenericBuyerConfirmation(com.tcs.invoicefactoring.invoice.confirmation.exception.BuyerConfirmationException ex, HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        log.warn("Buyer confirmation error — path={} correlationId={}", request.getRequestURI(), correlationId);
+        ApiError error = ApiError.of(ErrorCode.BUYER_CONFIRMATION_INVALID.name(), ex.getMessage(), correlationId);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     // ── Bean Validation failures ──────────────────────────────────────────────
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

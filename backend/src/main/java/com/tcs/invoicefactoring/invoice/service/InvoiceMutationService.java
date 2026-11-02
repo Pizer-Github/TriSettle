@@ -188,7 +188,9 @@ public class InvoiceMutationService {
                 invoice.getRejectionReason(),
                 invoice.getSubmittedAt(),
                 invoice.getCreatedAt(),
-                invoice.getUpdatedAt()
+                invoice.getUpdatedAt(),
+                invoice.getVerifiedConfirmationId(),
+                invoice.getLastBuyerResponseId()
         );
     }
 

@@ -35,7 +35,13 @@ public enum ErrorCode {
     DUPLICATE_DOCUMENT("An invoice document with identical cryptographic content already exists on the network", HttpStatus.CONFLICT),
     INVALID_INVOICE_STATE("Invoice is not in the required state for this operation", HttpStatus.CONFLICT),
     DOCUMENT_REQUIRED("An active document is required before this operation can proceed", HttpStatus.BAD_REQUEST),
-    PAYLOAD_TOO_LARGE("File size exceeds the allowed limit", HttpStatus.PAYLOAD_TOO_LARGE);
+    PAYLOAD_TOO_LARGE("File size exceeds the allowed limit", HttpStatus.PAYLOAD_TOO_LARGE),
+
+    // ── Buyer Confirmation ─────────────────────────────────────────────────────
+    BUYER_CONFIRMATION_INVALID("Buyer confirmation request or token is invalid", HttpStatus.BAD_REQUEST),
+    CONFIRMATION_EXPIRED("Confirmation request or session has expired", HttpStatus.GONE),
+    RATE_LIMIT_EXCEEDED("Rate limit exceeded for confirmation attempts", HttpStatus.TOO_MANY_REQUESTS),
+    BUYER_NOT_AUTHORIZED("Buyer organization or user is not authorized for this invoice", HttpStatus.FORBIDDEN);
 
     private final String defaultMessage;
     private final HttpStatus httpStatus;

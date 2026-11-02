@@ -58,6 +58,12 @@ public class Invoice {
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
 
+    @Column(name = "verified_confirmation_id")
+    private UUID verifiedConfirmationId;
+
+    @Column(name = "last_buyer_response_id")
+    private UUID lastBuyerResponseId;
+
     @Column(name = "submitted_at")
     private Instant submittedAt;
 
@@ -189,6 +195,22 @@ public class Invoice {
 
     public void setRejectionReason(String rejectionReason) {
         this.rejectionReason = rejectionReason;
+    }
+
+    public UUID getVerifiedConfirmationId() {
+        return verifiedConfirmationId;
+    }
+
+    public void setVerifiedConfirmationId(UUID verifiedConfirmationId) {
+        this.verifiedConfirmationId = verifiedConfirmationId;
+    }
+
+    public UUID getLastBuyerResponseId() {
+        return lastBuyerResponseId;
+    }
+
+    public void setLastBuyerResponseId(UUID lastBuyerResponseId) {
+        this.lastBuyerResponseId = lastBuyerResponseId;
     }
 
     public Instant getSubmittedAt() {

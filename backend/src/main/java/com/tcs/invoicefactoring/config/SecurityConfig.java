@@ -64,10 +64,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Pre-flight requests are allowed
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        // Public endpoints — auth and health only
+                        // Public endpoints — auth, health, and buyer confirmation session endpoints
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/api/v1/buyer/confirmations/**").permitAll()
                         // All other requests require authentication
                         .anyRequest().authenticated()
                 )
@@ -83,8 +84,8 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(List.of("http://localhost:[*]", "http://127.0.0.1:[*]"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Correlation-ID"));
-        configuration.setExposedHeaders(List.of("X-Correlation-ID"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Correlation-ID", "X-Confirmation-Session", "Idempotency-Key"));
+        configuration.setExposedHeaders(List.of("X-Correlation-ID", "X-Confirmation-Session"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
