@@ -210,7 +210,7 @@ public class BuyerConfirmationMutationService {
      * Exchanges a raw URL fragment token for an authenticated 15-minute confirmation session token.
      * Universal lock order: invoices -> buyer_confirmation_requests -> buyer_confirmation_sessions.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ConfirmationSessionExpiredException.class)
     public TokenExchangeResponseDto exchangeToken(String rawToken, String clientIp, String userAgent, String authChannel, UUID portalUserId, UUID buyerOrgId) {
         checkRateLimit(clientIp);
 
@@ -239,10 +239,12 @@ public class BuyerConfirmationMutationService {
         if (req.getExpiresAt().isBefore(Instant.now())) {
             activeSessions.forEach(s -> s.setStatus("EXPIRED"));
             sessionRepository.saveAll(activeSessions);
+            sessionRepository.flush();
 
             req.setStatus("EXPIRED");
             req.setUpdatedAt(Instant.now());
             requestRepository.save(req);
+            requestRepository.flush();
             throw new ConfirmationSessionExpiredException("Confirmation request has expired");
         }
 
@@ -286,7 +288,7 @@ public class BuyerConfirmationMutationService {
      * Acquires a processing lease on an active confirmation session, incrementing monotonic fencing generation.
      * Universal lock order: invoices -> buyer_confirmation_requests -> buyer_confirmation_sessions.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ConfirmationSessionExpiredException.class)
     public SessionLeaseResult acquireSessionLease(String rawSessionToken, String idempotencyKey, String requestHash, int leaseSeconds) {
         String sessionTokenHash = computeSha256(rawSessionToken);
         BuyerConfirmationSession session = sessionRepository.findBySessionTokenHash(sessionTokenHash)
@@ -324,6 +326,7 @@ public class BuyerConfirmationMutationService {
             session.setStatus("EXPIRED");
             session.setUpdatedAt(Instant.now());
             sessionRepository.save(session);
+            sessionRepository.flush();
             throw new ConfirmationSessionExpiredException("Confirmation session has expired");
         }
 
@@ -351,7 +354,7 @@ public class BuyerConfirmationMutationService {
      * Submits a buyer confirmation response, updating invoice status and constructing canonical legal audit evidence.
      * Universal lock order: invoices -> buyer_confirmation_requests -> buyer_confirmation_sessions.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ConfirmationSessionExpiredException.class)
     public BuyerConfirmationResponseDto respondToConfirmation(
             String rawSessionToken,
             long expectedGeneration,
@@ -411,6 +414,15 @@ public class BuyerConfirmationMutationService {
             throw new InvalidConfirmationTokenException("Confirmation request is not PENDING");
         }
         if (req.getExpiresAt().isBefore(Instant.now())) {
+            Instant now = Instant.now();
+            session.setStatus("EXPIRED");
+            session.setUpdatedAt(now);
+            sessionRepository.save(session);
+            req.setStatus("EXPIRED");
+            req.setUpdatedAt(now);
+            requestRepository.save(req);
+            sessionRepository.flush();
+            requestRepository.flush();
             throw new ConfirmationSessionExpiredException("Confirmation request has expired");
         }
         if (!"PENDING_VERIFICATION".equals(invoice.getStatus())) {
