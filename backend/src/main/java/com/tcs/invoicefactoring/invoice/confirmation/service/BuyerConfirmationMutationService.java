@@ -34,8 +34,12 @@ import com.tcs.invoicefactoring.invoice.exception.InvalidInvoiceStateException;
 import com.tcs.invoicefactoring.invoice.exception.InvoiceNotFoundException;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceDocumentRepository;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -62,6 +66,7 @@ public class BuyerConfirmationMutationService {
     private final NotificationEnvelopeEncryptionService encryptionService;
     private final EvidenceSerializationService evidenceService;
     private final ObjectMapper objectMapper;
+    private final PlatformTransactionManager transactionManager;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public BuyerConfirmationMutationService(
@@ -77,6 +82,25 @@ public class BuyerConfirmationMutationService {
             EvidenceSerializationService evidenceService,
             ObjectMapper objectMapper
     ) {
+        this(invoiceRepository, documentRepository, requestRepository, sessionRepository, responseRepository,
+                taxProfileRepository, throttleRepository, outboxEventRepository, encryptionService, evidenceService, objectMapper, null);
+    }
+
+    @Autowired
+    public BuyerConfirmationMutationService(
+            InvoiceRepository invoiceRepository,
+            InvoiceDocumentRepository documentRepository,
+            BuyerConfirmationRequestRepository requestRepository,
+            BuyerConfirmationSessionRepository sessionRepository,
+            BuyerConfirmationResponseRepository responseRepository,
+            OrganizationTaxProfileRepository taxProfileRepository,
+            ConfirmationAttemptThrottleRepository throttleRepository,
+            OutboxEventRepository outboxEventRepository,
+            NotificationEnvelopeEncryptionService encryptionService,
+            EvidenceSerializationService evidenceService,
+            ObjectMapper objectMapper,
+            @Autowired(required = false) PlatformTransactionManager transactionManager
+    ) {
         this.invoiceRepository = invoiceRepository;
         this.documentRepository = documentRepository;
         this.requestRepository = requestRepository;
@@ -88,6 +112,7 @@ public class BuyerConfirmationMutationService {
         this.encryptionService = encryptionService;
         this.evidenceService = evidenceService;
         this.objectMapper = objectMapper;
+        this.transactionManager = transactionManager;
     }
 
     /**
@@ -623,24 +648,34 @@ public class BuyerConfirmationMutationService {
     }
 
     private void recordFailedThrottleAttempt(String clientIp) {
-        ConfirmationAttemptThrottle throttle = throttleRepository.findByClientIp(clientIp)
-                .orElseGet(() -> {
-                    ConfirmationAttemptThrottle t = new ConfirmationAttemptThrottle();
-                    t.setClientIp(clientIp);
-                    return t;
-                });
+        Runnable action = () -> {
+            ConfirmationAttemptThrottle throttle = throttleRepository.findByClientIp(clientIp)
+                    .orElseGet(() -> {
+                        ConfirmationAttemptThrottle t = new ConfirmationAttemptThrottle();
+                        t.setClientIp(clientIp);
+                        return t;
+                    });
 
-        int fails = throttle.getFailedAttempts() + 1;
-        throttle.setFailedAttempts(fails);
-        throttle.setLastAttemptAt(Instant.now());
+            int fails = throttle.getFailedAttempts() + 1;
+            throttle.setFailedAttempts(fails);
+            throttle.setLastAttemptAt(Instant.now());
 
-        if (fails >= 5) {
-            throttle.setThrottledUntil(Instant.now().plus(15, ChronoUnit.MINUTES));
-        } else if (fails >= 3) {
-            throttle.setThrottledUntil(Instant.now().plus(1, ChronoUnit.MINUTES));
+            if (fails >= 5) {
+                throttle.setThrottledUntil(Instant.now().plus(15, ChronoUnit.MINUTES));
+            } else if (fails >= 3) {
+                throttle.setThrottledUntil(Instant.now().plus(1, ChronoUnit.MINUTES));
+            }
+
+            throttleRepository.save(throttle);
+        };
+
+        if (transactionManager != null) {
+            TransactionTemplate requiresNewTemplate = new TransactionTemplate(transactionManager);
+            requiresNewTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            requiresNewTemplate.executeWithoutResult(status -> action.run());
+        } else {
+            action.run();
         }
-
-        throttleRepository.save(throttle);
     }
 
     private String generateSecureToken() {

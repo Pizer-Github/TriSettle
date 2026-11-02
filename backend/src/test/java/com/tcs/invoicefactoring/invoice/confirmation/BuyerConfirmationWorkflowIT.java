@@ -91,7 +91,7 @@ class BuyerConfirmationWorkflowIT {
     void endToEnd_buyerConfirmation_tokenChannel_confirmsInvoice() throws Exception {
         // 1. Setup SME & Invoice submitted to PENDING_VERIFICATION
         String smeToken = registerSme("sme1@supplier.com", "Supplier One Pvt Ltd");
-        String invoiceId = createAndSubmitInvoice(smeToken, "27AABCU9603R1ZM", "INV-1001", "10000.00", "1800.00", "11800.00");
+        String invoiceId = createAndSubmitInvoice(smeToken, "27AABCU9603R1ZN", "INV-1001", "10000.00", "1800.00", "11800.00");
 
         // 2. SME requests confirmation
         RequestConfirmationDto requestDto = new RequestConfirmationDto("debtor.ap@bigbuyer.com");
@@ -188,7 +188,7 @@ class BuyerConfirmationWorkflowIT {
     @Test
     void buyerDispute_transitionsInvoiceToRejected() throws Exception {
         String smeToken = registerSme("sme2@supplier.com", "Supplier Two Pvt Ltd");
-        String invoiceId = createAndSubmitInvoice(smeToken, "27AABCU9603R1ZM", "INV-2002", "20000.00", "3600.00", "23600.00");
+        String invoiceId = createAndSubmitInvoice(smeToken, "27AABCU9603R1ZN", "INV-2002", "20000.00", "3600.00", "23600.00");
 
         // SME requests confirmation
         RequestConfirmationDto requestDto = new RequestConfirmationDto("debtor2@bigbuyer.com");
@@ -236,7 +236,7 @@ class BuyerConfirmationWorkflowIT {
     @Test
     void smeCancellation_revokesBuyerSessions() throws Exception {
         String smeToken = registerSme("sme3@supplier.com", "Supplier Three Pvt Ltd");
-        String invoiceId = createAndSubmitInvoice(smeToken, "27AABCU9603R1ZM", "INV-3003", "15000.00", "2700.00", "17700.00");
+        String invoiceId = createAndSubmitInvoice(smeToken, "27AABCU9603R1ZN", "INV-3003", "15000.00", "2700.00", "17700.00");
 
         // SME requests confirmation
         RequestConfirmationDto requestDto = new RequestConfirmationDto("debtor3@bigbuyer.com");
