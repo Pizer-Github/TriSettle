@@ -38,6 +38,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+#variable_conflict use_column
 DECLARE
     v_req RECORD;
     v_inv RECORD;
@@ -56,10 +57,10 @@ BEGIN
     END IF;
 
     -- Discover request by token hash without locks
-    SELECT id, invoice_id, sme_org_id, status, expires_at
+    SELECT req.id, req.invoice_id, req.sme_org_id, req.status, req.expires_at
     INTO v_req
-    FROM public.buyer_confirmation_requests
-    WHERE secure_token_hash = p_secure_token_hash;
+    FROM public.buyer_confirmation_requests req
+    WHERE req.secure_token_hash = p_secure_token_hash;
 
     IF NOT FOUND THEN
         -- Record failed attempt
@@ -78,17 +79,17 @@ BEGIN
     END IF;
 
     -- Lock Hierarchy Step 1: Lock invoice FIRST
-    SELECT id, invoice_number, buyer_name, total_amount, currency, status
+    SELECT inv.id, inv.invoice_number, inv.buyer_name, inv.total_amount, inv.currency, inv.status
     INTO v_inv
-    FROM public.invoices
-    WHERE id = v_req.invoice_id
+    FROM public.invoices inv
+    WHERE inv.id = v_req.invoice_id
     FOR UPDATE;
 
     -- Lock Hierarchy Step 2: Lock request SECOND and reload into v_req
-    SELECT id, invoice_id, sme_org_id, status, expires_at
+    SELECT req.id, req.invoice_id, req.sme_org_id, req.status, req.expires_at
     INTO v_req
-    FROM public.buyer_confirmation_requests
-    WHERE id = v_req.id
+    FROM public.buyer_confirmation_requests req
+    WHERE req.id = v_req.id
     FOR UPDATE;
 
     -- Lock Hierarchy Step 3: Lock sessions deterministically
@@ -166,6 +167,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+#variable_conflict use_column
 DECLARE
     v_sess RECORD;
     v_new_generation BIGINT;
@@ -284,6 +286,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+#variable_conflict use_column
 DECLARE
     v_sess RECORD;
     v_req RECORD;

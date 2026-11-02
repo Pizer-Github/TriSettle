@@ -191,9 +191,9 @@ public class V8ToV9MigrationUpgradeIT {
     @Order(2)
     void step2_verifyV8DataPreserved_afterV9Upgrade() throws Exception {
         try (Connection conn = getOwnerConnection(); Statement st = conn.createStatement()) {
-            // Verify row counts
+            // Verify row counts (4 orgs: 1 seeded by V5 platform admin + 3 seeded by test)
             ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM organizations");
-            rs.next(); assertThat(rs.getInt(1)).isEqualTo(3);
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(4);
 
             rs = st.executeQuery("SELECT COUNT(*) FROM users");
             rs.next(); assertThat(rs.getInt(1)).isEqualTo(2);

@@ -55,6 +55,7 @@ public class InvoiceVerificationTriggerIT {
     private static final UUID RESP_DISPUTED_ID = UUID.randomUUID();
 
     private static final String VALID_CHECKSUM = "a1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef";
+    private static final String PENDING_CHECKSUM = "b1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef";
 
     private static Connection getOwnerConnection() throws Exception {
         return DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
@@ -95,7 +96,7 @@ public class InvoiceVerificationTriggerIT {
 
                 // Documents (sme_org_id and uploaded_by attached while invoice is in DRAFT)
                 st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
-                        "VALUES ('%s', '%s', '%s', 'inv1.pdf', '/inv1.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_PENDING_ID, INV_PENDING_ID, SME_ORG_ID, VALID_CHECKSUM, SME_USER_ID));
+                        "VALUES ('%s', '%s', '%s', 'inv1.pdf', '/inv1.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_PENDING_ID, INV_PENDING_ID, SME_ORG_ID, PENDING_CHECKSUM, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
                         "VALUES ('%s', '%s', '%s', 'inv2.pdf', '/inv2.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_VERIFIED_ID, INV_VERIFIED_ID, SME_ORG_ID, VALID_CHECKSUM, SME_USER_ID));

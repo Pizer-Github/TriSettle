@@ -192,9 +192,9 @@ public class BuyerConfirmationTenantIsolationIT {
                 int updated = st.executeUpdate("UPDATE buyer_confirmation_requests SET recipient_email = 'hacked@hack.com' WHERE id = '" + REQ2_ID + "'");
                 assertThat(updated).isEqualTo(0);
 
-                // DELETE: Cannot delete SME2's request
-                int deleted = st.executeUpdate("DELETE FROM buyer_confirmation_requests WHERE id = '" + REQ2_ID + "'");
-                assertThat(deleted).isEqualTo(0);
+                // DELETE: Cannot delete SME2's request (app_worker has no DELETE grant on table)
+                assertThatThrownBy(() -> st.executeUpdate("DELETE FROM buyer_confirmation_requests WHERE id = '" + REQ2_ID + "'"))
+                        .hasMessageContaining("permission denied for table buyer_confirmation_requests");
 
                 // INSERT: Cannot insert request with SME2 tenant ID
                 assertThatThrownBy(() -> st.executeUpdate(String.format(
@@ -320,9 +320,15 @@ public class BuyerConfirmationTenantIsolationIT {
         String rogueToken = objectMapper.readTree(res.getResponse().getContentAsString())
                 .path("data").path("token").asText();
 
-        // Rogue user attempts to cancel SME 1's request via SME controller
-        mockMvc.perform(post("/api/v1/invoices/{id}/buyer-confirmation/cancel", INV1_ID)
+        // 1. Rogue user attempts to cancel SME 1's request via SME controller (blocked by tenant-scoped query -> 404)
+        mockMvc.perform(post("/api/v1/sme/invoices/{id}/confirmation-request/cancel", INV1_ID)
+                        .param("requestId", REQ1_ID.toString())
                         .header("Authorization", "Bearer " + rogueToken))
+                .andExpect(status().isNotFound());
+
+        // 2. Unauthenticated request without JWT context is denied by security filter chain (403 Forbidden)
+        mockMvc.perform(post("/api/v1/sme/invoices/{id}/confirmation-request/cancel", INV1_ID)
+                        .param("requestId", REQ1_ID.toString()))
                 .andExpect(status().isForbidden());
     }
 }
