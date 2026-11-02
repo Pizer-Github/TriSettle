@@ -5,7 +5,7 @@
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | **M1: Foundation & Skeleton** | 🟢 Accepted & Hardened | Modular Monolith, Flyway V1-V5, Hardened JWT Auth, DEFINER Auth Lookups, Transactional RLS Aspect, Dynamic Admin Bootstrap, Angular 17 workspace with lockfile, CI pipeline |
-| **M2: Invoice & Verification** | 🟡 In Progress (Increment 1 Complete) | Increment 1: Invoice Creation, Document Management, Idempotency Lease Fencing, RLS Tenant Isolation (Complete). Increment 2: Buyer Confirmation & Listing (Pending). |
+| **M2: Invoice & Verification** | 🟢 Complete & Verified | Increment 1: Invoice Creation, Document Management, Idempotency Lease Fencing, RLS Tenant Isolation (Complete). Increment 2: Buyer Confirmation Workflow, Encrypted Outbox, RFC 8785 Evidence Digest, Monotonic Fencing (Complete). |
 | **M3: Bidding & Transaction Boundaries** | ⚪ Not Implemented | Polymorphic bids, `@Transactional` `FOR UPDATE` bid acceptance |
 | **M4: Ledger & Webhooks** | ⚪ Not Implemented | Immutable double-entry ledger triggers, webhook ingestion |
 | **M5: Exception Workflows & Admin Portal** | ⚪ Not Implemented | Recourse Demands, Dual approval, Step-Up Auth |
@@ -117,17 +117,70 @@
 
 ---
 
+## Milestone 2 Increment 2: Buyer Confirmation Workflow (Completed)
+
+### 1. Database Migrations & Security Hardening
+- **`V8__create_buyer_confirmations_and_outbox.sql`:**
+  - Table: `organization_tax_profiles` for verified corporate identity bound to Indian GSTINs with `UNIQUE (gstin)` and `UNIQUE (org_id, gstin)`.
+  - Invoices altered: authoritative state transition tracking with `verified_confirmation_id` and `last_buyer_response_id`.
+  - Table: `buyer_confirmation_requests` with single-pending-request partial index `uq_invoice_single_pending_req ON (invoice_id) WHERE status = 'PENDING'` and composite constraints `FOREIGN KEY (invoice_id, sme_org_id) REFERENCES invoices(id, sme_org_id)`.
+  - Table: `buyer_confirmation_sessions` providing ephemeral (15-minute) authenticated sessions, session-level idempotency leases (`IDLE`, `PROCESSING`, `SUCCESS`), monotonic `fencing_generation BIGINT`, and SHA-256 session token hashing.
+  - Table: `buyer_confirmation_responses` capturing immutable legal evidence records with trigger `trg_buyer_response_immutable` preventing updates/deletes.
+  - Table: `outbox_events` for durable transactional messaging with AES-256-GCM encrypted payloads, key rotation versioning, and status polling.
+  - Table: `confirmation_attempt_throttles` tracking client IP exchange attempts with progressive backoff (3 failed $\rightarrow$ 1 min; 5 failed $\rightarrow$ 15 min).
+  - Triggers & Functions:
+    - `trg_invoice_doc_lock_and_immutability`: locks invoice `FOR UPDATE` before document mutations, enforcing strict document immutability and serialization.
+    - `trg_invoice_verification_authoritative_check`: enforces that invoice transitions to `VERIFIED` or `REJECTED` can only be authored by `buyer_confirmation_definer`.
+    - Executable procedures: `fn_issue_buyer_confirmation_request`, `fn_exchange_buyer_confirmation_token`, `fn_acquire_session_lease`, `fn_submit_buyer_confirmation_response`, `fn_cancel_buyer_confirmation_request`, `fn_resend_buyer_confirmation_request`, `fn_mark_request_expired`, and `fn_claim_outbox_events`.
+  - Role Separation: Dedicated `NOLOGIN` execution role `buyer_confirmation_definer` possessing scoped table grants and `USING (true)` definer policies; `app_worker` runtime role has `EXECUTE` grants only without direct `UPDATE` privileges on sensitive invoice verification columns.
+
+### 2. Dual Buyer Access Model & Session Idempotency
+- **Ad-Hoc / Single-Use Bearer Links:** High-entropy cryptographic tokens transferred exclusively in URL hash fragments (`#token=...`), exchanged for 15-minute confirmation sessions without requiring pre-provisioned user accounts.
+- **Authenticated Portal Access:** Onboarded buyer users authenticate via JWT and query confirmation requests matching their organization's verified GSTINs in `organization_tax_profiles`.
+- **Session-Level Monotonic Fencing:** `fencing_generation` increments monotonically with each acquired lease; stale workers attempting commits after lease expiration are rejected with `FencingGenerationException`.
+- **Atomic Two-Phase Sweeper:** Overdue requests (7-day expiry) are swept using `FOR UPDATE SKIP LOCKED` and transitioned to `EXPIRED` while atomically revoking all active child sessions.
+
+### 3. Cryptography & Non-Repudiation Legal Evidence
+- **RFC 8785 Canonical Serialization:** `EvidenceSerializationService` sorts keys lexicographically by Unicode code points using `TreeMap`, formats numbers canonically, and calculates SHA-256 digest over the exact canonical UTF-8 representation.
+- **AES-256-GCM Outbox Encryption:** `NotificationEnvelopeEncryptionService` encrypts notification payloads using 256-bit AES-GCM with 12-byte IV and AAD context binding (`aggregateType:aggregateId:tenantId:keyVersion`), with full support for seamless cryptographic key rotation.
+- **Transactional Outbox Worker:** `DurableOutboxWorker` claims pending events with `SKIP LOCKED`, delivers notifications via pluggable transports (`LoggingEmailNotificationTransport`), and manages exponential backoff retries with dead-letter status.
+
+### 4. Automated Tests & CI Verification
+- Unit Tests (Surefire): 59 tests (0 failures, 0 errors, 0 skipped):
+  - `IdempotencyServiceTest` (8 tests)
+  - `DocumentStorageServiceTest` (4 tests)
+  - `GstinValidatorTest` (14 tests)
+  - `FinancialAmountValidatorTest` (9 tests)
+  - `InvoiceServiceTest` (7 tests)
+  - `JwtServiceTest` (4 tests)
+  - `BuyerConfirmationMutationServiceTest` (7 tests)
+  - `EvidenceSerializationServiceTest` (2 tests)
+  - `NotificationEnvelopeEncryptionServiceTest` (3 tests)
+  - `FlywayMigrationTest` (1 test in containerized CI)
+- Integration Tests (Failsafe via Testcontainers PostgreSQL 16.4): 42 tests (0 failures, 0 errors, 0 skipped):
+  - `AuthControllerIT` (9 tests)
+  - `InvoiceCreationIT` (7 tests)
+  - `InvoiceDocumentUploadIT` (4 tests)
+  - `InvoiceSubmissionIT` (4 tests)
+  - `InvoiceTenantIsolationIT` (5 tests)
+  - `TenantIsolationIT` (8 tests)
+  - `IdempotencyFencingIT` (1 test)
+  - `BuyerConfirmationWorkflowIT` (4 comprehensive end-to-end tests: token channel confirmation, document download & binary stream, buyer dispute/rejection, SME cancellation with atomic session revocation, progressive rate limiting)
+- Total Backend Automated Tests Executed in CI: **101 tests (0 failures, 0 errors, 0 skipped)**.
+
+---
+
 ## Command Execution & Verification Evidence
 
-| Step / Command | Target | Local Result | CI Result (Run 41462625194) | Classification |
+| Step / Command | Target | Local Result | CI Result (Run 41493190054) | Classification |
 |---|---|---|---|:---:|
-| `git status` / `git log` | Repository Integrity & Commit History | Clean working tree, linear commits | Commit `7c04d29` | **PASS** |
+| `git status` / `git log` | Repository Integrity & Commit History | Clean working tree, linear commits | Commit `fa09c32` | **PASS** |
 | `cd backend; .\mvnw.cmd test-compile` | Maven Test Source Compilation | All classes compile cleanly (`BUILD SUCCESS`, exit code 0) | Verified in CI | **PASS** |
-| `cd backend; .\mvnw.cmd test -Dtest=...` | Unit Test Suite (46 tests) | 46 passed, 0 failed, 0 errors, 0 skipped (`BUILD SUCCESS`) | 47 passed (incl. Flyway) | **PASS** |
-| `cd backend; ./mvnw clean verify -B` | Full Integration Test Suite (Testcontainers) | Host lacks Docker daemon | 85 passed, 0 failed, 0 skipped | **PASS** |
+| `cd backend; .\mvnw.cmd test -Dtest=...` | Unit Test Suite (58 tests locally) | 58 passed, 0 failed, 0 errors, 0 skipped (`BUILD SUCCESS`) | 59 passed (incl. Flyway) | **PASS** |
+| `cd backend; ./mvnw clean verify -B` | Full Integration Test Suite (Testcontainers) | Host lacks Docker daemon | 101 passed, 0 failed, 0 skipped | **PASS** |
 | `cd frontend; npm ci && npm run test` | Angular 17 / Karma Unit Test Suite | Node 20 / Angular CLI | 3 specs passed, 0 failures | **PASS** |
 | `docker compose --env-file .env.example config` | Compose & Dockerfile Configuration | Compose syntax & Dockerfile checks | Validated successfully | **PASS** |
 
-*CI Workflow Run URL:* https://github.com/Pizer-Github/TriSettle/actions/runs/41462625194
-*Commit Tested:* `7c04d29654b038d15d316f67f0c6dcf310f0e3f4`
-*All 3 CI Jobs (`Backend`, `Frontend`, `Docker Configuration Validation`) green.*
+*CI Workflow Run URL:* https://github.com/Pizer-Github/TriSettle/actions/runs/41493190054  
+*Commit Tested:* `fa09c327f2a5ceaf2e7ad2b635985889764cda0b`  
+*All 3 CI Jobs (`Backend (Java 21 / Spring Boot 3)`, `Frontend (Angular 17 / Node.js 20)`, `Docker Configuration Validation`) green.*
