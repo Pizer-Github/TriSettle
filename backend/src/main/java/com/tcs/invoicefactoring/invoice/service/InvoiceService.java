@@ -10,15 +10,12 @@ import com.tcs.invoicefactoring.invoice.dto.CreateInvoiceRequest;
 import com.tcs.invoicefactoring.invoice.dto.InvoiceDetailDto;
 import com.tcs.invoicefactoring.invoice.dto.InvoiceDocumentDto;
 import com.tcs.invoicefactoring.invoice.dto.InvoiceDto;
-import com.tcs.invoicefactoring.invoice.exception.*;
+import com.tcs.invoicefactoring.invoice.exception.DuplicateDocumentException;
+import com.tcs.invoicefactoring.invoice.exception.InvoiceNotFoundException;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceDocumentRepository;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceRepository;
 import com.tcs.invoicefactoring.invoice.storage.DocumentStorageService;
 import com.tcs.invoicefactoring.invoice.storage.StoredDocumentInfo;
-import com.tcs.invoicefactoring.invoice.validation.FinancialAmountValidator;
-import com.tcs.invoicefactoring.invoice.validation.GstinValidator;
-import com.tcs.invoicefactoring.invoice.validation.InvalidFinancialAmountException;
-import com.tcs.invoicefactoring.invoice.validation.PanValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -27,16 +24,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * High-level orchestration service for invoices and document lifecycle.
+ * Delegates transactional business mutations to {@link InvoiceMutationService}
+ * so that invocations pass through Spring AOP proxies (@Transactional and TenantRlsAspect).
+ */
 @Service
 public class InvoiceService {
 
@@ -46,6 +45,7 @@ public class InvoiceService {
     private final InvoiceDocumentRepository documentRepository;
     private final DocumentStorageService storageService;
     private final IdempotencyService idempotencyService;
+    private final InvoiceMutationService mutationService;
     private final ObjectMapper objectMapper;
 
     public InvoiceService(
@@ -53,12 +53,14 @@ public class InvoiceService {
             InvoiceDocumentRepository documentRepository,
             DocumentStorageService storageService,
             IdempotencyService idempotencyService,
+            InvoiceMutationService mutationService,
             ObjectMapper objectMapper
     ) {
         this.invoiceRepository = invoiceRepository;
         this.documentRepository = documentRepository;
         this.storageService = storageService;
         this.idempotencyService = idempotencyService;
+        this.mutationService = mutationService;
         this.objectMapper = objectMapper;
     }
 
@@ -84,58 +86,11 @@ public class InvoiceService {
         }
 
         try {
-            return createDraftInternal(smeOrgId, userId, request, endpoint, idempotencyKey, lease.getFencingToken());
+            return mutationService.createDraft(smeOrgId, userId, request, endpoint, idempotencyKey, lease.getFencingToken());
         } catch (Exception ex) {
             idempotencyService.releaseLease(smeOrgId, userId, endpoint, idempotencyKey, lease.getFencingToken());
             throw ex;
         }
-    }
-
-    @Transactional
-    public InvoiceDto createDraftInternal(UUID smeOrgId, UUID userId, CreateInvoiceRequest request, String endpoint, String idempotencyKey, UUID fencingToken) {
-        idempotencyService.verifyFencingTokenAndLock(smeOrgId, userId, endpoint, idempotencyKey, fencingToken);
-
-        String normalizedGstin = request.buyerGstin().trim().toUpperCase();
-        String normalizedInvoiceNumber = request.invoiceNumber().trim();
-
-        GstinValidator.validate(normalizedGstin);
-        PanValidator.validatePanMatchesGstin(request.buyerPan(), normalizedGstin);
-
-        if (request.dueDate().isBefore(request.invoiceDate())) {
-            throw new InvalidFinancialAmountException("Due date [" + request.dueDate() + "] cannot be before invoice date [" + request.invoiceDate() + "]");
-        }
-
-        BigDecimal taxable = FinancialAmountValidator.parseAndValidate(request.taxableAmount(), "taxableAmount", false);
-        BigDecimal tax = FinancialAmountValidator.parseAndValidate(request.taxAmount(), "taxAmount", true);
-        BigDecimal total = FinancialAmountValidator.parseAndValidate(request.totalAmount(), "totalAmount", false);
-        FinancialAmountValidator.validateAmountMath(taxable, tax, total);
-
-        if (invoiceRepository.existsBySmeOrgIdAndBuyerGstinAndInvoiceNumber(smeOrgId, normalizedGstin, normalizedInvoiceNumber)) {
-            throw new DuplicateInvoiceException("An invoice with number [" + normalizedInvoiceNumber + "] already exists for buyer GSTIN [" + normalizedGstin + "]");
-        }
-
-        Invoice invoice = new Invoice();
-        invoice.setSmeOrgId(smeOrgId);
-        invoice.setCreatedBy(userId);
-        invoice.setBuyerName(request.buyerName().trim());
-        invoice.setBuyerGstin(normalizedGstin);
-        invoice.setBuyerPan(request.buyerPan() != null && !request.buyerPan().isBlank() ? request.buyerPan().trim().toUpperCase() : null);
-        invoice.setInvoiceNumber(normalizedInvoiceNumber);
-        invoice.setInvoiceDate(request.invoiceDate());
-        invoice.setDueDate(request.dueDate());
-        invoice.setCurrency("INR");
-        invoice.setTaxableAmount(taxable);
-        invoice.setTaxAmount(tax);
-        invoice.setTotalAmount(total);
-        invoice.setStatus("DRAFT");
-
-        invoice = invoiceRepository.save(invoice);
-        InvoiceDto dto = toInvoiceDto(invoice);
-
-        String serialized = serialize(dto);
-        idempotencyService.completeSuccess(smeOrgId, userId, endpoint, idempotencyKey, fencingToken, 201, serialized);
-
-        return dto;
     }
 
     /**
@@ -160,51 +115,12 @@ public class InvoiceService {
         }
 
         try {
-            return uploadDocumentInternal(smeOrgId, userId, invoiceId, docInfo, filename, endpoint, idempotencyKey, lease.getFencingToken());
+            return mutationService.uploadDocument(smeOrgId, userId, invoiceId, docInfo, filename, endpoint, idempotencyKey, lease.getFencingToken());
         } catch (Exception ex) {
+            storageService.deleteQuietly(docInfo.absolutePath());
             idempotencyService.releaseLease(smeOrgId, userId, endpoint, idempotencyKey, lease.getFencingToken());
             throw ex;
         }
-    }
-
-    @Transactional
-    public InvoiceDocumentDto uploadDocumentInternal(UUID smeOrgId, UUID userId, UUID invoiceId, StoredDocumentInfo docInfo, String filename, String endpoint, String idempotencyKey, UUID fencingToken) {
-        idempotencyService.verifyFencingTokenAndLock(smeOrgId, userId, endpoint, idempotencyKey, fencingToken);
-
-        Invoice invoice = invoiceRepository.findForUpdate(invoiceId, smeOrgId)
-                .orElseThrow(() -> new InvoiceNotFoundException("Invoice [" + invoiceId + "] not found"));
-
-        if (!"DRAFT".equals(invoice.getStatus())) {
-            throw new InvalidInvoiceStateException("Cannot attach document: invoice is in status [" + invoice.getStatus() + "], but must be DRAFT");
-        }
-
-        int maxVersion = documentRepository.findMaxVersionByInvoiceId(invoiceId);
-
-        // Deactivate previous active document without deleting its historical physical file or row
-        documentRepository.findByInvoiceIdAndActiveTrue(invoiceId).ifPresent(activeDoc -> {
-            activeDoc.setActive(false);
-            documentRepository.save(activeDoc);
-        });
-
-        InvoiceDocument newDoc = new InvoiceDocument();
-        newDoc.setInvoiceId(invoiceId);
-        newDoc.setSmeOrgId(smeOrgId);
-        newDoc.setUploadedBy(userId);
-        newDoc.setFileName(filename);
-        newDoc.setFileSizeBytes(docInfo.fileSizeBytes());
-        newDoc.setMimeType(docInfo.mimeType());
-        newDoc.setStoragePath(docInfo.relativeStoragePath());
-        newDoc.setSha256Checksum(docInfo.sha256Checksum());
-        newDoc.setVersion(maxVersion + 1);
-        newDoc.setActive(true);
-
-        newDoc = documentRepository.save(newDoc);
-        InvoiceDocumentDto dto = toDocumentDto(newDoc);
-
-        String serialized = serialize(dto);
-        idempotencyService.completeSuccess(smeOrgId, userId, endpoint, idempotencyKey, fencingToken, 201, serialized);
-
-        return dto;
     }
 
     /**
@@ -221,57 +137,34 @@ public class InvoiceService {
         }
 
         try {
-            return submitInvoiceInternal(smeOrgId, userId, invoiceId, endpoint, idempotencyKey, lease.getFencingToken());
+            return mutationService.submitInvoice(smeOrgId, userId, invoiceId, endpoint, idempotencyKey, lease.getFencingToken());
         } catch (Exception ex) {
             idempotencyService.releaseLease(smeOrgId, userId, endpoint, idempotencyKey, lease.getFencingToken());
             throw ex;
         }
     }
 
-    @Transactional
-    public InvoiceDto submitInvoiceInternal(UUID smeOrgId, UUID userId, UUID invoiceId, String endpoint, String idempotencyKey, UUID fencingToken) {
-        idempotencyService.verifyFencingTokenAndLock(smeOrgId, userId, endpoint, idempotencyKey, fencingToken);
-
-        Invoice invoice = invoiceRepository.findForUpdate(invoiceId, smeOrgId)
-                .orElseThrow(() -> new InvoiceNotFoundException("Invoice [" + invoiceId + "] not found"));
-
-        if (!"DRAFT".equals(invoice.getStatus())) {
-            throw new InvalidInvoiceStateException("Cannot submit invoice: invoice is in status [" + invoice.getStatus() + "], but must be DRAFT");
-        }
-
-        Optional<InvoiceDocument> activeDoc = documentRepository.findByInvoiceIdAndActiveTrue(invoiceId);
-        if (activeDoc.isEmpty()) {
-            throw new DocumentRequiredException("An active invoice document must be uploaded before submitting for verification");
-        }
-
-        invoice.setStatus("PENDING_VERIFICATION");
-        invoice.setSubmittedAt(Instant.now());
-        invoice.setUpdatedAt(Instant.now());
-
-        invoice = invoiceRepository.save(invoice);
-        InvoiceDto dto = toInvoiceDto(invoice);
-
-        String serialized = serialize(dto);
-        idempotencyService.completeSuccess(smeOrgId, userId, endpoint, idempotencyKey, fencingToken, 200, serialized);
-
-        return dto;
-    }
-
     @Transactional(readOnly = true)
-    public InvoiceDetailDto getInvoiceDetail(UUID smeOrgId, UUID invoiceId) {
-        Invoice invoice = invoiceRepository.findByIdAndSmeOrgId(invoiceId, smeOrgId)
-                .orElseThrow(() -> new InvoiceNotFoundException("Invoice [" + invoiceId + "] not found"));
+    public InvoiceDetailDto getInvoiceDetail(UUID callerOrgId, String callerRole, UUID invoiceId) {
+        Invoice invoice;
+        if ("ADMIN".equals(callerRole) || "PLATFORM_OPS".equals(callerRole)) {
+            invoice = invoiceRepository.findById(invoiceId)
+                    .orElseThrow(() -> new InvoiceNotFoundException("Invoice [" + invoiceId + "] not found"));
+        } else {
+            invoice = invoiceRepository.findByIdAndSmeOrgId(invoiceId, callerOrgId)
+                    .orElseThrow(() -> new InvoiceNotFoundException("Invoice [" + invoiceId + "] not found"));
+        }
 
         List<InvoiceDocument> documents = documentRepository.findByInvoiceIdOrderByVersionDesc(invoiceId);
         InvoiceDocumentDto activeDoc = documents.stream()
                 .filter(InvoiceDocument::isActive)
                 .findFirst()
-                .map(this::toDocumentDto)
+                .map(mutationService::toDocumentDto)
                 .orElse(null);
 
-        List<InvoiceDocumentDto> history = documents.stream().map(this::toDocumentDto).toList();
+        List<InvoiceDocumentDto> history = documents.stream().map(mutationService::toDocumentDto).toList();
 
-        return new InvoiceDetailDto(toInvoiceDto(invoice), activeDoc, history);
+        return new InvoiceDetailDto(mutationService.toInvoiceDto(invoice), activeDoc, history);
     }
 
     @Transactional(readOnly = true)
@@ -282,58 +175,30 @@ public class InvoiceService {
         } else {
             page = invoiceRepository.findBySmeOrgId(smeOrgId, pageable);
         }
-        return page.map(this::toInvoiceDto);
+        return page.map(mutationService::toInvoiceDto);
     }
 
     @Transactional(readOnly = true)
-    public InputStream getDocumentStream(UUID smeOrgId, UUID invoiceId, UUID documentId) {
-        InvoiceDocument doc = documentRepository.findByIdAndInvoiceIdAndSmeOrgId(documentId, invoiceId, smeOrgId)
-                .orElseThrow(() -> new InvoiceNotFoundException("Invoice document [" + documentId + "] not found for invoice [" + invoiceId + "]"));
+    public InputStream getDocumentStream(UUID callerOrgId, String callerRole, UUID invoiceId, UUID documentId) {
+        InvoiceDocument doc;
+        if ("ADMIN".equals(callerRole) || "PLATFORM_OPS".equals(callerRole)) {
+            doc = documentRepository.findByIdAndInvoiceId(documentId, invoiceId)
+                    .orElseThrow(() -> new InvoiceNotFoundException("Invoice document [" + documentId + "] not found for invoice [" + invoiceId + "]"));
+        } else {
+            doc = documentRepository.findByIdAndInvoiceIdAndSmeOrgId(documentId, invoiceId, callerOrgId)
+                    .orElseThrow(() -> new InvoiceNotFoundException("Invoice document [" + documentId + "] not found for invoice [" + invoiceId + "]"));
+        }
 
         return storageService.getDocumentStream(doc.getStoragePath());
     }
 
-    private InvoiceDto toInvoiceDto(Invoice inv) {
-        return new InvoiceDto(
-                inv.getId(),
-                inv.getSmeOrgId(),
-                inv.getBuyerName(),
-                inv.getBuyerGstin(),
-                inv.getBuyerPan(),
-                inv.getInvoiceNumber(),
-                inv.getInvoiceDate(),
-                inv.getDueDate(),
-                inv.getCurrency(),
-                inv.getTaxableAmount().toPlainString(),
-                inv.getTaxAmount().toPlainString(),
-                inv.getTotalAmount().toPlainString(),
-                inv.getStatus(),
-                inv.getRejectionReason(),
-                inv.getSubmittedAt(),
-                inv.getCreatedAt(),
-                inv.getUpdatedAt()
-        );
-    }
-
-    private InvoiceDocumentDto toDocumentDto(InvoiceDocument doc) {
-        return new InvoiceDocumentDto(
-                doc.getId(),
-                doc.getInvoiceId(),
-                doc.getVersion(),
-                doc.isActive(),
-                doc.getFileName(),
-                doc.getFileSizeBytes(),
-                doc.getMimeType(),
-                doc.getSha256Checksum(),
-                doc.getUploadedAt()
-        );
-    }
-
-    private String serialize(Object obj) {
+    private String computeSha256(String input) {
         try {
-            return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize response DTO", e);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
 
@@ -341,7 +206,7 @@ public class InvoiceService {
         try {
             return objectMapper.readValue(json, InvoiceDto.class);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to deserialize cached invoice DTO", e);
+            throw new RuntimeException("Deserialization failure", e);
         }
     }
 
@@ -349,17 +214,7 @@ public class InvoiceService {
         try {
             return objectMapper.readValue(json, InvoiceDocumentDto.class);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to deserialize cached document DTO", e);
-        }
-    }
-
-    private String computeSha256(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 algorithm not available", e);
+            throw new RuntimeException("Deserialization failure", e);
         }
     }
 }

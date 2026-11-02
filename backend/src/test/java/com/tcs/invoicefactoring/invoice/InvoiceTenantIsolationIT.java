@@ -24,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +62,12 @@ class InvoiceTenantIsolationIT {
 
     @Autowired
     private InvoiceRepository invoiceRepository;
+
+    @Autowired
+    private jakarta.persistence.EntityManager entityManager;
+
+    @Autowired
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     private String registerSme(String email, String orgName) throws Exception {
         RegisterRequest reg = new RegisterRequest(email, "StrongPass123!", "SME User", orgName);
@@ -180,7 +187,12 @@ class InvoiceTenantIsolationIT {
 
     @Test
     void missingContext_failsClosedUnderRls() {
-        // Without setting tenant context, querying under app_worker returns 0 rows
-        assertThat(invoiceRepository.findAll()).isEmpty();
+        transactionTemplate.execute(status -> {
+            entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+            List<?> invoices = entityManager.createNativeQuery("SELECT id FROM invoices").getResultList();
+            assertThat(invoices).isEmpty();
+            entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+            return null;
+        });
     }
 }

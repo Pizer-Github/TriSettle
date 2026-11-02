@@ -60,7 +60,8 @@ class InvoiceServiceTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
-        service = new InvoiceService(invoiceRepository, documentRepository, storageService, idempotencyService, objectMapper);
+        InvoiceMutationService mutationService = new InvoiceMutationService(invoiceRepository, documentRepository, idempotencyService, objectMapper);
+        service = new InvoiceService(invoiceRepository, documentRepository, storageService, idempotencyService, mutationService, objectMapper);
     }
 
     private CreateInvoiceRequest createValidRequest() {

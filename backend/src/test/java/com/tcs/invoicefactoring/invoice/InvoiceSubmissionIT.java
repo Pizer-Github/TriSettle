@@ -127,7 +127,7 @@ class InvoiceSubmissionIT {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("DOCUMENT_REQUIRED"));
+                .andExpect(jsonPath("$.errorCode").value("DOCUMENT_REQUIRED"));
     }
 
     @Test
@@ -147,7 +147,7 @@ class InvoiceSubmissionIT {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("INVALID_INVOICE_STATE"));
+                .andExpect(jsonPath("$.errorCode").value("INVALID_INVOICE_STATE"));
     }
 
     @Test
@@ -171,6 +171,6 @@ class InvoiceSubmissionIT {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("INVALID_INVOICE_STATE"));
+                .andExpect(jsonPath("$.errorCode").value("INVALID_INVOICE_STATE"));
     }
 }

@@ -94,7 +94,7 @@ public class InvoiceController {
     @PreAuthorize("hasRole('SME') or hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<InvoiceDetailDto>> getInvoice(@PathVariable UUID id) {
         TenantContextHolder.TenantContext context = getAuthenticatedContext();
-        InvoiceDetailDto detail = invoiceService.getInvoiceDetail(context.orgId(), id);
+        InvoiceDetailDto detail = invoiceService.getInvoiceDetail(context.orgId(), context.role(), id);
         return ResponseEntity.ok(ApiResponse.ok(detail));
     }
 
@@ -105,7 +105,7 @@ public class InvoiceController {
             @PathVariable UUID documentId
     ) {
         TenantContextHolder.TenantContext context = getAuthenticatedContext();
-        InputStream stream = invoiceService.getDocumentStream(context.orgId(), id, documentId);
+        InputStream stream = invoiceService.getDocumentStream(context.orgId(), context.role(), id, documentId);
 
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)

@@ -133,7 +133,7 @@ class InvoiceCreationIT {
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("DUPLICATE_INVOICE"));
+                .andExpect(jsonPath("$.errorCode").value("DUPLICATE_INVOICE"));
     }
 
     @Test
@@ -213,7 +213,7 @@ class InvoiceCreationIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req2)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_CONFLICT"));
+                .andExpect(jsonPath("$.errorCode").value("IDEMPOTENCY_CONFLICT"));
     }
 
     @Test
@@ -237,7 +237,7 @@ class InvoiceCreationIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
     }
 
     @Test

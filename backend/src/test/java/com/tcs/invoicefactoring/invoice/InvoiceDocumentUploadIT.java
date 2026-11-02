@@ -170,11 +170,11 @@ class InvoiceDocumentUploadIT {
                         .header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("DUPLICATE_DOCUMENT"))
+                .andExpect(jsonPath("$.errorCode").value("DUPLICATE_DOCUMENT"))
                 // Assert no leak of SME 1 information
-                .andExpect(jsonPath("$.error.message").value("An invoice document with identical cryptographic content already exists on the network"))
-                .andExpect(jsonPath("$.error.message", not(containsString("SME 1 Org"))))
-                .andExpect(jsonPath("$.error.message", not(containsString(invoiceId1))));
+                .andExpect(jsonPath("$.message").value("An invoice document with identical cryptographic content already exists on the network"))
+                .andExpect(jsonPath("$.message", not(containsString("SME 1 Org"))))
+                .andExpect(jsonPath("$.message", not(containsString(invoiceId1))));
     }
 
     @Test
@@ -190,6 +190,6 @@ class InvoiceDocumentUploadIT {
                         .header("Authorization", "Bearer " + token)
                         .header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
     }
 }

@@ -80,6 +80,9 @@ class TenantIsolationIT {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+
     private UUID smeOrg1Id;
     private UUID smeOrg2Id;
     private UUID financierOrgId;
@@ -205,32 +208,46 @@ class TenantIsolationIT {
     }
 
     @Test
-    @Transactional
     void crossTenantWrite_isBlockedByRlsPolicy() {
-        entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
-        rlsContextService.establishContext(smeOrg1Id, "SME");
+        // Step 1: In a dedicated transaction as app_worker, verify cross-tenant UPDATE is blocked by RLS USING policy (0 rows updated)
+        transactionTemplate.execute(status -> {
+            entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+            rlsContextService.establishContext(smeOrg1Id, "SME");
 
-        // Attempt cross-tenant update: SME 1 tries to update SME 2's organisation
-        int updated = entityManager.createNativeQuery(
-                "UPDATE organizations SET name = 'Tampered Name' WHERE id = :targetId"
-        ).setParameter("targetId", smeOrg2Id).executeUpdate();
+            int updated = entityManager.createNativeQuery(
+                    "UPDATE organizations SET name = 'Tampered Name' WHERE id = :targetId"
+            ).setParameter("targetId", smeOrg2Id).executeUpdate();
 
-        // RLS USING policy ensures 0 rows are found/modified
-        assertThat(updated).isZero();
+            assertThat(updated).isZero();
+            entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+            return null;
+        });
 
-        // Attempt cross-tenant insert: SME 1 tries to insert a membership pointing to SME 2's org
+        // Step 2: In a dedicated transaction as app_worker, verify cross-tenant INSERT is blocked by RLS WITH CHECK policy
+        // The database aborts the transaction on RLS violation, and TransactionTemplate rolls it back.
         assertThatThrownBy(() -> {
-            entityManager.createNativeQuery(
-                    "INSERT INTO user_organizations (id, user_id, org_id, role, is_active, created_at) " +
-                    "VALUES (:id, :userId, :orgId, 'SME', true, NOW())"
-            )
-            .setParameter("id", UUID.randomUUID())
-            .setParameter("userId", smeUser1Id)
-            .setParameter("orgId", smeOrg2Id)
-            .executeUpdate();
+            transactionTemplate.execute(status -> {
+                entityManager.createNativeQuery("SET ROLE app_worker").executeUpdate();
+                rlsContextService.establishContext(smeOrg1Id, "SME");
+
+                entityManager.createNativeQuery(
+                        "INSERT INTO user_organizations (id, user_id, org_id, role, is_active, created_at) " +
+                        "VALUES (:id, :userId, :orgId, 'SME', true, NOW())"
+                )
+                .setParameter("id", UUID.randomUUID())
+                .setParameter("userId", smeUser1Id)
+                .setParameter("orgId", smeOrg2Id)
+                .executeUpdate();
+
+                return null;
+            });
         }).hasMessageContaining("violates row-level security policy");
 
-        entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+        // Step 3: Recover connection in a fresh transaction, confirming clean rollback and resetting role
+        transactionTemplate.execute(status -> {
+            entityManager.createNativeQuery("RESET ROLE").executeUpdate();
+            return null;
+        });
     }
 
     @Test

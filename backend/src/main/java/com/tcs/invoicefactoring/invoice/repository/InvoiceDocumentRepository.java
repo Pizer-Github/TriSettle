@@ -23,4 +23,6 @@ public interface InvoiceDocumentRepository extends JpaRepository<InvoiceDocument
     boolean existsBySha256Checksum(String sha256Checksum);
 
     Optional<InvoiceDocument> findByIdAndInvoiceIdAndSmeOrgId(UUID id, UUID invoiceId, UUID smeOrgId);
+
+    Optional<InvoiceDocument> findByIdAndInvoiceId(UUID id, UUID invoiceId);
 }
