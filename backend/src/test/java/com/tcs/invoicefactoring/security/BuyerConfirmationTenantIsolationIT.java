@@ -71,6 +71,15 @@ public class BuyerConfirmationTenantIsolationIT {
     private static final UUID REQ1_ID = UUID.randomUUID();
     private static final UUID REQ2_ID = UUID.randomUUID();
 
+    private static String sha256(String input) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            return java.util.HexFormat.of().formatHex(md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static Connection getWorkerConnection() throws Exception {
         Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
         try (Statement st = conn.createStatement()) {
@@ -134,10 +143,10 @@ public class BuyerConfirmationTenantIsolationIT {
                     "INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                             "VALUES (?, ?, ?, ?, '27AAACT2727Q1ZW', 'buyer@iso.local', ?, 'PENDING', NOW() + INTERVAL '7 days')")) {
                 ps.setObject(1, REQ1_ID); ps.setObject(2, INV1_ID); ps.setObject(3, SME1_ORG_ID); ps.setObject(4, BUYER_ORG_ID);
-                ps.setString(5, "tokeniso11111111111111111111111111111111111111111111111111111111111111"); ps.addBatch();
+                ps.setString(5, sha256("tokeniso1")); ps.addBatch();
 
                 ps.setObject(1, REQ2_ID); ps.setObject(2, INV2_ID); ps.setObject(3, SME2_ORG_ID); ps.setObject(4, BUYER_ORG_ID);
-                ps.setString(5, "tokeniso22222222222222222222222222222222222222222222222222222222222222"); ps.addBatch();
+                ps.setString(5, sha256("tokeniso2")); ps.addBatch();
                 ps.executeBatch();
             }
 

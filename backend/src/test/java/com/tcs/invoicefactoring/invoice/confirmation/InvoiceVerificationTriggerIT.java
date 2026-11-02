@@ -86,23 +86,26 @@ public class InvoiceVerificationTriggerIT {
                 st.executeUpdate(String.format("INSERT INTO user_organizations (user_id, org_id, role) VALUES ('%s', '%s', 'SME'), ('%s', '%s', 'BUYER')", SME_USER_ID, SME_ORG_ID, BUYER_USER_ID, BUYER_ORG_ID));
                 st.executeUpdate(String.format("INSERT INTO organization_tax_profiles (org_id, gstin, is_verified, verified_by_user_id, status) VALUES ('%s', '27AAACT2727Q1ZW', true, '%s', 'ACTIVE')", BUYER_ORG_ID, BUYER_USER_ID));
 
-                // Invoices (including created_by)
+                // Invoices (inserted in DRAFT status first so documents can be attached)
                 st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INV_PENDING_ID, SME_ORG_ID, SME_USER_ID));
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'DRAFT', '%s')", INV_PENDING_ID, SME_ORG_ID, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-002', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INV_VERIFIED_ID, SME_ORG_ID, SME_USER_ID));
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Trigger Org', 'AAACT2727Q', 'INV-TRG-002', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'DRAFT', '%s')", INV_VERIFIED_ID, SME_ORG_ID, SME_USER_ID));
 
-                // Documents (sme_org_id and uploaded_by)
+                // Documents (sme_org_id and uploaded_by attached while invoice is in DRAFT)
                 st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
                         "VALUES ('%s', '%s', '%s', 'inv1.pdf', '/inv1.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_PENDING_ID, INV_PENDING_ID, SME_ORG_ID, VALID_CHECKSUM, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
                         "VALUES ('%s', '%s', '%s', 'inv2.pdf', '/inv2.pdf', 1024, 'application/pdf', '%s', true, '%s')", DOC_VERIFIED_ID, INV_VERIFIED_ID, SME_ORG_ID, VALID_CHECKSUM, SME_USER_ID));
 
-                // Requests
+                // Transition to PENDING_VERIFICATION
+                st.executeUpdate("UPDATE invoices SET status = 'PENDING_VERIFICATION'");
+
+                // Requests (with valid 64-character hash)
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
-                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@trg.local', 'tokenhash123456789012345678901234567890123456789012345678901234567890', 'PENDING', NOW() + INTERVAL '7 days')", REQ_ID, INV_VERIFIED_ID, SME_ORG_ID, BUYER_ORG_ID));
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@trg.local', 'tokenhash12345678901234567890123456789012345678901234567890123456', 'PENDING', NOW() + INTERVAL '7 days')", REQ_ID, INV_VERIFIED_ID, SME_ORG_ID, BUYER_ORG_ID));
 
                 // Response (CONFIRMED)
                 String canonConfirmed = String.format("{\"action\":\"CONFIRMED\",\"document_sha256\":\"%s\"}", VALID_CHECKSUM);

@@ -124,15 +124,17 @@ public class BuyerConfirmationExpiryPersistenceIT {
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                         "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() - INTERVAL '2 hours')", REQ_HTTP_EXP_ID, INVOICE_HTTP_EXP_ID, SME_ORG_ID, BUYER_ORG_ID, sha256(RAW_TOKEN_HTTP)));
 
-                // 3. For Session & Response HTTP test: active request, but session with past expires_at
+                // 3. For Session & Response HTTP test: active request, but session with past expires_at (inserted in DRAFT first for document attachment)
                 st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
-                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-003', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", INVOICE_SESS_EXP_ID, SME_ORG_ID, SME_USER_ID));
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-EXP-003', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'DRAFT', '%s')", INVOICE_SESS_EXP_ID, SME_ORG_ID, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
                         "VALUES ('%s', '%s', '%s', 'doc.pdf', '/doc.pdf', 1024, 'application/pdf', 'dummychecksum', true, '%s')", UUID.randomUUID(), INVOICE_SESS_EXP_ID, SME_ORG_ID, SME_USER_ID));
 
+                st.executeUpdate(String.format("UPDATE invoices SET status = 'PENDING_VERIFICATION' WHERE id = '%s'", INVOICE_SESS_EXP_ID));
+
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
-                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', 'tokenhashsess111', 'PENDING', NOW() + INTERVAL '7 days')", REQ_SESS_EXP_ID, INVOICE_SESS_EXP_ID, SME_ORG_ID, BUYER_ORG_ID));
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() + INTERVAL '7 days')", REQ_SESS_EXP_ID, INVOICE_SESS_EXP_ID, SME_ORG_ID, BUYER_ORG_ID, sha256("tokenhashsess111")));
 
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_sessions (id, session_token_hash, request_id, invoice_id, sme_org_id, auth_channel, status, expires_at, client_ip, user_agent_hash) " +
                         "VALUES ('%s', '%s', '%s', '%s', '%s', 'TOKEN_LINK', 'ACTIVE', NOW() - INTERVAL '5 minutes', '192.168.1.1', 'uahash')",
@@ -241,7 +243,7 @@ public class BuyerConfirmationExpiryPersistenceIT {
                         "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-REAPER-001', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'PENDING_VERIFICATION', '%s')", batchInvId, SME_ORG_ID, SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
-                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', 'tokenhashreaper111', 'PENDING', NOW() - INTERVAL '3 hours')", batchReqId, batchInvId, SME_ORG_ID, BUYER_ORG_ID));
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() - INTERVAL '3 hours')", batchReqId, batchInvId, SME_ORG_ID, BUYER_ORG_ID, sha256("tokenhashreaper111")));
 
                 st.execute("SET ROLE app_worker");
                 ResultSet rs = st.executeQuery("SELECT fn_mark_request_expired(50)");

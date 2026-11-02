@@ -47,6 +47,15 @@ public class V8ToV9MigrationUpgradeIT {
     private static final UUID REQUEST2_ID = UUID.randomUUID();
     private static final UUID RESPONSE2_ID = UUID.randomUUID();
 
+    private static String sha256(String input) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            return java.util.HexFormat.of().formatHex(md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static Connection getOwnerConnection() throws Exception {
         return DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     }
@@ -94,16 +103,16 @@ public class V8ToV9MigrationUpgradeIT {
                 ps.executeUpdate();
             }
 
-            // Invoices
+            // Invoices in DRAFT state first so documents can be attached
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, ?, ?)")) {
-                ps.setObject(1, INVOICE_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-001"); ps.setString(7, "PENDING_VERIFICATION"); ps.setObject(8, SME_USER_ID); ps.addBatch();
-                ps.setObject(1, INVOICE2_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-002"); ps.setString(7, "PENDING_VERIFICATION"); ps.setObject(8, SME_USER_ID); ps.addBatch();
+                            "VALUES (?, ?, ?, ?, ?, ?, '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'DRAFT', ?)")) {
+                ps.setObject(1, INVOICE_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-001"); ps.setObject(7, SME_USER_ID); ps.addBatch();
+                ps.setObject(1, INVOICE2_ID); ps.setObject(2, SME_ORG_ID); ps.setString(3, "27AAACT2727Q1ZW"); ps.setString(4, "Buyer Enterprise Ltd"); ps.setString(5, "AAACT2727Q"); ps.setString(6, "INV-V8-002"); ps.setObject(7, SME_USER_ID); ps.addBatch();
                 ps.executeBatch();
             }
 
-            // Invoice Documents
+            // Invoice Documents (attached while invoice is in DRAFT)
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
                             "VALUES (?, ?, ?, 'invoice.pdf', '/storage/invoice.pdf', 2048, 'application/pdf', ?, true, ?)")) {
@@ -112,23 +121,28 @@ public class V8ToV9MigrationUpgradeIT {
                 ps.executeBatch();
             }
 
-            // Buyer Confirmation Requests
+            // Transition invoices to PENDING_VERIFICATION
+            try (Statement st = conn.createStatement()) {
+                st.executeUpdate("UPDATE invoices SET status = 'PENDING_VERIFICATION'");
+            }
+
+            // Buyer Confirmation Requests (valid 64-character SHA256 hashes)
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
                             "VALUES (?, ?, ?, ?, '27AAACT2727Q1ZW', 'buyer@corp.local', ?, ?, NOW() + INTERVAL '7 days')")) {
                 ps.setObject(1, REQUEST_ID); ps.setObject(2, INVOICE_ID); ps.setObject(3, SME_ORG_ID); ps.setObject(4, BUYER_ORG_ID);
-                ps.setString(5, "tokenhash11111111111111111111111111111111111111111111111111111111111111"); ps.setString(6, "PENDING"); ps.addBatch();
+                ps.setString(5, sha256("rawtoken1")); ps.setString(6, "PENDING"); ps.addBatch();
 
                 ps.setObject(1, REQUEST2_ID); ps.setObject(2, INVOICE2_ID); ps.setObject(3, SME_ORG_ID); ps.setObject(4, BUYER_ORG_ID);
-                ps.setString(5, "tokenhash22222222222222222222222222222222222222222222222222222222222222"); ps.setString(6, "CONFIRMED"); ps.addBatch();
+                ps.setString(5, sha256("rawtoken2")); ps.setString(6, "CONFIRMED"); ps.addBatch();
                 ps.executeBatch();
             }
 
-            // Buyer Confirmation Sessions
+            // Buyer Confirmation Sessions (valid 64-character SHA256 hash)
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO buyer_confirmation_sessions (id, session_token_hash, request_id, invoice_id, sme_org_id, auth_channel, status, expires_at, client_ip, user_agent_hash) " +
                             "VALUES (?, ?, ?, ?, ?, 'TOKEN_LINK', 'ACTIVE', NOW() + INTERVAL '15 minutes', '192.168.1.1', 'uahash111')")) {
-                ps.setObject(1, SESSION_ID); ps.setString(2, "sessiontokenhash111111111111111111111111111111111111111111111111111");
+                ps.setObject(1, SESSION_ID); ps.setString(2, sha256("sessiontoken1"));
                 ps.setObject(3, REQUEST_ID); ps.setObject(4, INVOICE_ID); ps.setObject(5, SME_ORG_ID);
                 ps.executeUpdate();
             }
