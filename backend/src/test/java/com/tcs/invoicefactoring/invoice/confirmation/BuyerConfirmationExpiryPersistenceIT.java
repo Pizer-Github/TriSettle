@@ -221,8 +221,8 @@ public class BuyerConfirmationExpiryPersistenceIT {
                         testInvId, SME_ORG_ID, UUID.randomUUID().toString().substring(0, 8), SME_USER_ID));
 
                 st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
-                        "VALUES ('%s', '%s', '%s', 'doc.pdf', '/doc.pdf', 1024, 'application/pdf', 'dummychecksum', true, '%s')",
-                        UUID.randomUUID(), testInvId, SME_ORG_ID, SME_USER_ID));
+                        "VALUES ('%s', '%s', '%s', 'doc.pdf', '/doc.pdf', 1024, 'application/pdf', '%s', true, '%s')",
+                        UUID.randomUUID(), testInvId, SME_ORG_ID, sha256("sub-doc-" + testInvId), SME_USER_ID));
 
                 st.executeUpdate(String.format("UPDATE invoices SET status = 'PENDING_VERIFICATION' WHERE id = '%s'", testInvId));
 

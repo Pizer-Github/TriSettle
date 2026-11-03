@@ -94,6 +94,7 @@ public class InvoiceVerificationTriggerIT {
                 st.execute("DO $$ BEGIN " +
                         "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pawnshop_owner') THEN " +
                         "  CREATE ROLE pawnshop_owner WITH NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; " +
+                        "  GRANT app_worker TO pawnshop_owner; " +
                         "  GRANT USAGE ON SCHEMA public TO pawnshop_owner; " +
                         "  GRANT SELECT, UPDATE ON public.invoices TO pawnshop_owner; " +
                         "END IF; " +
@@ -286,6 +287,8 @@ public class InvoiceVerificationTriggerIT {
             conn.setAutoCommit(false);
             try (Statement st = conn.createStatement()) {
                 st.execute("SET ROLE pawnshop_owner");
+                st.execute("SET LOCAL app.tenant_id = '" + SME_ORG_ID + "'");
+                st.execute("SET LOCAL app.tenant_type = 'SME'");
 
                 assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET status = 'VERIFIED' WHERE id = '" + INV_PENDING_ID + "'"))
                         .hasMessageContaining("DIRECT_INVOICE_VERIFICATION_PROHIBITED");
