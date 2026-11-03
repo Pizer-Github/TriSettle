@@ -6,12 +6,22 @@
 -- Remediates:
 --   1. Replaces wildcard role-name matching (CURRENT_USER LIKE '%owner%') with
 --      an explicit whitelist of authorized roles ('buyer_confirmation_definer',
---      'postgres', 'app_owner', 'test_owner').
+--      'postgres', 'app_owner').
 --   2. Prevents unintended roles whose names contain the substring "owner"
 --      (e.g., 'pawnshop_owner', 'business_owner') from receiving trusted privileges.
 --   3. Preserves unconditional permanent immutability for VERIFIED invoices (Invariant A).
 --   4. Preserves unconditional confirmation binding and checksum integrity (Invariant C).
 -- ─────────────────────────────────────────────────────────────────────────────
+
+-- Ensure the app_owner role exists so migration is self-contained across all environments
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_owner') THEN
+        CREATE ROLE app_owner WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT;
+        GRANT USAGE ON SCHEMA public TO app_owner;
+    END IF;
+END
+$$;
 
 CREATE OR REPLACE FUNCTION public.fn_trg_check_invoice_verified_has_confirmation()
 RETURNS TRIGGER
@@ -42,7 +52,6 @@ BEGIN
         CURRENT_USER = 'buyer_confirmation_definer'
         OR CURRENT_USER = 'postgres'
         OR CURRENT_USER = 'app_owner'
-        OR CURRENT_USER = 'test_owner'
     );
 
     IF (NEW.status IN ('VERIFIED', 'REJECTED') AND (OLD.status IS NULL OR OLD.status != NEW.status))

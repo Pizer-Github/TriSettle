@@ -28,7 +28,7 @@ public class InvoiceVerificationTriggerIT {
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.4-alpine")
             .withDatabaseName("trigger_test_db")
-            .withUsername("test_owner")
+            .withUsername("app_owner")
             .withPassword("test_password");
 
     @DynamicPropertySource
@@ -301,13 +301,13 @@ public class InvoiceVerificationTriggerIT {
         try (Connection conn = getOwnerConnection()) {
             conn.setAutoCommit(false);
             try (Statement st = conn.createStatement()) {
-                // Table owner (test_owner) cannot set status = 'VERIFIED' without verified_confirmation_id
+                // Table owner (app_owner) cannot set status = 'VERIFIED' without verified_confirmation_id
                 assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET status = 'VERIFIED', verified_confirmation_id = NULL WHERE id = '" + INV_PENDING_ID + "'"))
                         .hasMessageContaining("VERIFIED_INVOICE_MISSING_CONFIRMATION");
 
                 conn.rollback();
 
-                // Table owner cannot set status = 'VERIFIED' with bogus confirmation ID
+                // Table owner (app_owner) cannot set status = 'VERIFIED' with bogus confirmation ID
                 assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET status = 'VERIFIED', verified_confirmation_id = gen_random_uuid() WHERE id = '" + INV_PENDING_ID + "'"))
                         .hasMessageContaining("INVALID_CONFIRMATION_BINDING");
             }
