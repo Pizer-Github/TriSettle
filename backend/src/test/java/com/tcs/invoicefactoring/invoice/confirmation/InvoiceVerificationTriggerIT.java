@@ -93,7 +93,7 @@ public class InvoiceVerificationTriggerIT {
             try (Statement st = conn.createStatement()) {
                 st.execute("DO $$ BEGIN " +
                         "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pawnshop_owner') THEN " +
-                        "  CREATE ROLE pawnshop_owner WITH NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; " +
+                        "  CREATE ROLE pawnshop_owner WITH NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT; " +
                         "  GRANT app_worker TO pawnshop_owner; " +
                         "  GRANT USAGE ON SCHEMA public TO pawnshop_owner; " +
                         "  GRANT SELECT, UPDATE ON public.invoices TO pawnshop_owner; " +
