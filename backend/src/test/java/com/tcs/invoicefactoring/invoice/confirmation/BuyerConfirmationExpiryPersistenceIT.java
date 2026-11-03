@@ -41,7 +41,7 @@ public class BuyerConfirmationExpiryPersistenceIT {
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.4-alpine")
             .withDatabaseName("expiry_test_db")
-            .withUsername("test_owner")
+            .withUsername("app_owner")
             .withPassword("test_password");
 
     @DynamicPropertySource

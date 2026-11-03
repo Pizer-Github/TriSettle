@@ -41,7 +41,7 @@ public class BuyerConfirmationRateThrottlingIT {
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.4-alpine")
             .withDatabaseName("throttling_test_db")
-            .withUsername("test_owner")
+            .withUsername("app_owner")
             .withPassword("test_password");
 
     @DynamicPropertySource

@@ -52,7 +52,7 @@ class BuyerConfirmationWorkflowIT {
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.4-alpine")
             .withDatabaseName("test_db")
-            .withUsername("test_owner")
+            .withUsername("app_owner")
             .withPassword("test_password");
 
     @DynamicPropertySource
