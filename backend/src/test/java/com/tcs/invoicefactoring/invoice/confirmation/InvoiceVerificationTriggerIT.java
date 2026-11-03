@@ -91,6 +91,14 @@ public class InvoiceVerificationTriggerIT {
 
             // Seed orgs & users
             try (Statement st = conn.createStatement()) {
+                st.execute("DO $$ BEGIN " +
+                        "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pawnshop_owner') THEN " +
+                        "  CREATE ROLE pawnshop_owner WITH NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; " +
+                        "  GRANT USAGE ON SCHEMA public TO pawnshop_owner; " +
+                        "  GRANT SELECT, UPDATE ON public.invoices TO pawnshop_owner; " +
+                        "END IF; " +
+                        "END $$;");
+
                 st.executeUpdate(String.format("INSERT INTO organizations (id, name, org_type) VALUES ('%s', 'SME Trigger Org', 'SME'), ('%s', 'Buyer Trigger Org', 'BUYER')", SME_ORG_ID, BUYER_ORG_ID));
                 st.executeUpdate(String.format("INSERT INTO users (id, email, password_hash, full_name) VALUES ('%s', 'sme@trg.local', '$2a$10$dummy', 'SME'), ('%s', 'buyer@trg.local', '$2a$10$dummy', 'Buyer')", SME_USER_ID, BUYER_USER_ID));
                 st.executeUpdate(String.format("INSERT INTO user_organizations (user_id, org_id, role) VALUES ('%s', '%s', 'SME'), ('%s', '%s', 'BUYER')", SME_USER_ID, SME_ORG_ID, BUYER_USER_ID, BUYER_ORG_ID));
@@ -267,6 +275,38 @@ public class InvoiceVerificationTriggerIT {
 
                 assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET verified_confirmation_id = gen_random_uuid() WHERE id = '" + INV_VERIFIED_ID + "'"))
                         .hasMessageContaining("VERIFIED_INVOICE_CONFIRMATION_IMMUTABLE");
+            }
+            conn.rollback();
+        }
+    }
+
+    @Test
+    void unintendedRoleContainingOwner_directTransitionToVerified_prohibitedByTrigger() throws Exception {
+        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+            conn.setAutoCommit(false);
+            try (Statement st = conn.createStatement()) {
+                st.execute("SET ROLE pawnshop_owner");
+
+                assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET status = 'VERIFIED' WHERE id = '" + INV_PENDING_ID + "'"))
+                        .hasMessageContaining("DIRECT_INVOICE_VERIFICATION_PROHIBITED");
+            }
+        }
+    }
+
+    @Test
+    void tableOwner_transitionToVerified_missingConfirmationOrChecksum_failsUnconditionally() throws Exception {
+        try (Connection conn = getOwnerConnection()) {
+            conn.setAutoCommit(false);
+            try (Statement st = conn.createStatement()) {
+                // Table owner (test_owner) cannot set status = 'VERIFIED' without verified_confirmation_id
+                assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET status = 'VERIFIED', verified_confirmation_id = NULL WHERE id = '" + INV_PENDING_ID + "'"))
+                        .hasMessageContaining("VERIFIED_INVOICE_MISSING_CONFIRMATION");
+
+                conn.rollback();
+
+                // Table owner cannot set status = 'VERIFIED' with bogus confirmation ID
+                assertThatThrownBy(() -> st.executeUpdate("UPDATE invoices SET status = 'VERIFIED', verified_confirmation_id = gen_random_uuid() WHERE id = '" + INV_PENDING_ID + "'"))
+                        .hasMessageContaining("INVALID_CONFIRMATION_BINDING");
             }
             conn.rollback();
         }

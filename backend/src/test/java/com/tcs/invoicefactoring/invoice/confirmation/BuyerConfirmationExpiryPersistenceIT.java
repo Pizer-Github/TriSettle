@@ -206,6 +206,68 @@ public class BuyerConfirmationExpiryPersistenceIT {
 
     @Test
     @org.junit.jupiter.api.Order(3)
+    void directSql_fnSubmitResponse_expiredRequest_commitsExpiredState() throws Exception {
+        UUID testInvId = UUID.randomUUID();
+        UUID testReqId = UUID.randomUUID();
+        UUID testSessId = UUID.randomUUID();
+        String rawSessToken = "submitsqlrawtoken-" + UUID.randomUUID();
+
+        try (Connection conn = getOwnerConnection()) {
+            conn.setAutoCommit(true);
+            try (Statement st = conn.createStatement()) {
+                // Invoice in PENDING_VERIFICATION (inserted in DRAFT first to attach document)
+                st.executeUpdate(String.format("INSERT INTO invoices (id, sme_org_id, buyer_gstin, buyer_name, buyer_pan, invoice_number, invoice_date, due_date, currency, total_amount, taxable_amount, tax_amount, status, created_by) " +
+                        "VALUES ('%s', '%s', '27AAACT2727Q1ZW', 'Buyer Exp Org', 'AAACT2727Q', 'INV-SUB-EXP-%s', '2026-01-01', '2026-02-01', 'INR', 118000.00, 100000.00, 18000.00, 'DRAFT', '%s')",
+                        testInvId, SME_ORG_ID, UUID.randomUUID().toString().substring(0, 8), SME_USER_ID));
+
+                st.executeUpdate(String.format("INSERT INTO invoice_documents (id, invoice_id, sme_org_id, file_name, storage_path, file_size_bytes, mime_type, sha256_checksum, is_active, uploaded_by) " +
+                        "VALUES ('%s', '%s', '%s', 'doc.pdf', '/doc.pdf', 1024, 'application/pdf', 'dummychecksum', true, '%s')",
+                        UUID.randomUUID(), testInvId, SME_ORG_ID, SME_USER_ID));
+
+                st.executeUpdate(String.format("UPDATE invoices SET status = 'PENDING_VERIFICATION' WHERE id = '%s'", testInvId));
+
+                // Expired Request (expires_at is 1 hour in the past)
+                st.executeUpdate(String.format("INSERT INTO buyer_confirmation_requests (id, invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, secure_token_hash, status, expires_at) " +
+                        "VALUES ('%s', '%s', '%s', '%s', '27AAACT2727Q1ZW', 'buyer@exp.local', '%s', 'PENDING', NOW() - INTERVAL '1 hour')",
+                        testReqId, testInvId, SME_ORG_ID, BUYER_ORG_ID, sha256("submittokenhash111")));
+
+                // Active Session with lease held in PROCESSING state
+                st.executeUpdate(String.format("INSERT INTO buyer_confirmation_sessions (id, session_token_hash, request_id, invoice_id, sme_org_id, auth_channel, status, expires_at, client_ip, user_agent_hash, fencing_generation, lease_status, lease_expires_at, idempotency_key, request_hash) " +
+                        "VALUES ('%s', '%s', '%s', '%s', '%s', 'TOKEN_LINK', 'ACTIVE', NOW() + INTERVAL '10 minutes', '192.168.1.1', 'uahash', 1, 'PROCESSING', NOW() + INTERVAL '30 seconds', 'idemp-sub-1', 'reqhash')",
+                        testSessId, sha256(rawSessToken), testReqId, testInvId, SME_ORG_ID));
+
+                // Execute procedure as app_worker
+                st.execute("SET ROLE app_worker");
+                String canon = "{\"action\":\"CONFIRMED\"}";
+                ResultSet rs = st.executeQuery(String.format(
+                        "SELECT * FROM fn_submit_buyer_confirmation_response('%s', 1, 'idemp-sub-1', 'reqhash', 'CONFIRMED', NULL, 'Notes', 'buyer@exp.local', '%s', '%s'::jsonb, '%s', 200, '{\"status\":\"ok\"}', 'payload', 1)",
+                        sha256(rawSessToken), canon, canon, sha256(canon)
+                ));
+
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString("action_outcome")).isEqualTo("EXPIRED");
+                assertThat(rs.getObject("response_id")).isNull();
+            }
+        }
+
+        // Verify state is permanently committed through independent connection
+        try (Connection conn = getIndependentConnection(); Statement st = conn.createStatement()) {
+            ResultSet rs = st.executeQuery("SELECT status FROM buyer_confirmation_requests WHERE id = '" + testReqId + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getString("status")).isEqualTo("EXPIRED");
+
+            rs = st.executeQuery("SELECT status FROM buyer_confirmation_sessions WHERE id = '" + testSessId + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getString("status")).isEqualTo("EXPIRED");
+
+            rs = st.executeQuery("SELECT status FROM invoices WHERE id = '" + testInvId + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getString("status")).isEqualTo("PENDING_VERIFICATION");
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.Order(4)
     void httpPath_tokenExchange_afterExpiry_returns410AndPersistsExpiredStatus() throws Exception {
         UUID testInvId = UUID.randomUUID();
         UUID testReqId = UUID.randomUUID();
@@ -239,7 +301,7 @@ public class BuyerConfirmationExpiryPersistenceIT {
     }
 
     @Test
-    @org.junit.jupiter.api.Order(4)
+    @org.junit.jupiter.api.Order(5)
     void httpPath_acquireLeaseAndSubmit_afterExpiry_returns410AndPersistsExpiredStatus() throws Exception {
         SubmitConfirmationRequest req = new SubmitConfirmationRequest(
                 "CONFIRMED", null, "All good", "buyer@exp.local"
@@ -262,7 +324,7 @@ public class BuyerConfirmationExpiryPersistenceIT {
     }
 
     @Test
-    @org.junit.jupiter.api.Order(5)
+    @org.junit.jupiter.api.Order(6)
     void expiryReaperTask_fnMarkRequestExpired_batchesAndExpiresRequests() throws Exception {
         UUID batchInvId = UUID.randomUUID();
         UUID batchReqId = UUID.randomUUID();

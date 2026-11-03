@@ -224,6 +224,9 @@ public class V8ToV9MigrationUpgradeIT {
 
             rs = st.executeQuery("SELECT COUNT(*) FROM confirmation_attempt_throttles");
             rs.next(); assertThat(rs.getInt(1)).isEqualTo(1);
+
+            // Explicit relationship preservation verification after V9
+            assertSeededRelationshipsPreserved(conn);
         }
     }
 
@@ -302,6 +305,153 @@ public class V8ToV9MigrationUpgradeIT {
                 assertThat(rs.getString("type")).isEqualTo("SQL");
             }
             assertThat(versionCount).isEqualTo(3);
+
+            // Explicit relationship preservation verification after V10
+            assertSeededRelationshipsPreserved(conn);
+        }
+    }
+
+    @Test
+    @Order(6)
+    void step6_applyV11Migration_succeedsOnPopulatedV10Database() {
+        Flyway flywayV11 = Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations("classpath:db/migration")
+                .target("11")
+                .load();
+        int applied = flywayV11.migrate().migrationsExecuted;
+        assertThat(applied).isEqualTo(1);
+    }
+
+    @Test
+    @Order(7)
+    void step7_verifyDataPreservedAndExplicitRoles_afterV11Upgrade() throws Exception {
+        try (Connection conn = getOwnerConnection(); Statement st = conn.createStatement()) {
+            // Verify row counts across all 11 tables remain intact after V11
+            ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM organizations");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(4);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM users");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(2);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM user_organizations");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(2);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM organization_tax_profiles");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(1);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM invoices");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(2);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM invoice_documents");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(2);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM buyer_confirmation_requests");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(2);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM buyer_confirmation_sessions");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(1);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM buyer_confirmation_responses");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(1);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM outbox_events");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(1);
+
+            rs = st.executeQuery("SELECT COUNT(*) FROM confirmation_attempt_throttles");
+            rs.next(); assertThat(rs.getInt(1)).isEqualTo(1);
+
+            // Verify flyway schema history shows V8, V9, V10, V11 all successful
+            rs = st.executeQuery("SELECT version, success, type FROM flyway_schema_history WHERE version IN ('8', '9', '10', '11') ORDER BY installed_rank ASC");
+            int versionCount = 0;
+            while (rs.next()) {
+                versionCount++;
+                assertThat(rs.getBoolean("success")).isTrue();
+                assertThat(rs.getString("type")).isEqualTo("SQL");
+            }
+            assertThat(versionCount).isEqualTo(4);
+
+            // Explicit relationship preservation verification after V11
+            assertSeededRelationshipsPreserved(conn);
+        }
+    }
+
+    private void assertSeededRelationshipsPreserved(Connection conn) throws Exception {
+        try (Statement st = conn.createStatement()) {
+            // 1. Request -> Invoice and Tenant
+            ResultSet rs = st.executeQuery(
+                    "SELECT invoice_id, sme_org_id, buyer_org_id, buyer_gstin, recipient_email, status " +
+                            "FROM buyer_confirmation_requests WHERE id = '" + REQUEST_ID + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getObject("invoice_id", UUID.class)).isEqualTo(INVOICE_ID);
+            assertThat(rs.getObject("sme_org_id", UUID.class)).isEqualTo(SME_ORG_ID);
+            assertThat(rs.getObject("buyer_org_id", UUID.class)).isEqualTo(BUYER_ORG_ID);
+            assertThat(rs.getString("buyer_gstin")).isEqualTo("27AAACT2727Q1ZW");
+            assertThat(rs.getString("recipient_email")).isEqualTo("buyer@corp.local");
+            assertThat(rs.getString("status")).isEqualTo("PENDING");
+
+            rs = st.executeQuery(
+                    "SELECT invoice_id, sme_org_id, buyer_org_id, status " +
+                            "FROM buyer_confirmation_requests WHERE id = '" + REQUEST2_ID + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getObject("invoice_id", UUID.class)).isEqualTo(INVOICE2_ID);
+            assertThat(rs.getObject("sme_org_id", UUID.class)).isEqualTo(SME_ORG_ID);
+            assertThat(rs.getObject("buyer_org_id", UUID.class)).isEqualTo(BUYER_ORG_ID);
+            assertThat(rs.getString("status")).isEqualTo("CONFIRMED");
+
+            // 2. Session -> Request
+            rs = st.executeQuery(
+                    "SELECT request_id, invoice_id, sme_org_id, auth_channel, status " +
+                            "FROM buyer_confirmation_sessions WHERE id = '" + SESSION_ID + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getObject("request_id", UUID.class)).isEqualTo(REQUEST_ID);
+            assertThat(rs.getObject("invoice_id", UUID.class)).isEqualTo(INVOICE_ID);
+            assertThat(rs.getObject("sme_org_id", UUID.class)).isEqualTo(SME_ORG_ID);
+            assertThat(rs.getString("auth_channel")).isEqualTo("TOKEN_LINK");
+            assertThat(rs.getString("status")).isEqualTo("ACTIVE");
+
+            // 3. Response -> Request and Invoice
+            rs = st.executeQuery(
+                    "SELECT request_id, invoice_id, sme_org_id, action, auth_channel, identity_assurance " +
+                            "FROM buyer_confirmation_responses WHERE id = '" + RESPONSE2_ID + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getObject("request_id", UUID.class)).isEqualTo(REQUEST2_ID);
+            assertThat(rs.getObject("invoice_id", UUID.class)).isEqualTo(INVOICE2_ID);
+            assertThat(rs.getObject("sme_org_id", UUID.class)).isEqualTo(SME_ORG_ID);
+            assertThat(rs.getString("action")).isEqualTo("CONFIRMED");
+            assertThat(rs.getString("auth_channel")).isEqualTo("TOKEN_LINK");
+            assertThat(rs.getString("identity_assurance")).isEqualTo("BEARER_TOKEN_POSSESSION");
+
+            // 4. Outbox event associations
+            rs = st.executeQuery(
+                    "SELECT aggregate_id, tenant_id, event_type, status, key_version " +
+                            "FROM outbox_events WHERE id = '" + OUTBOX_ID + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getObject("aggregate_id", UUID.class)).isEqualTo(INVOICE_ID);
+            assertThat(rs.getObject("tenant_id", UUID.class)).isEqualTo(SME_ORG_ID);
+            assertThat(rs.getString("event_type")).isEqualTo("BUYER_CONFIRMATION_REQUESTED");
+            assertThat(rs.getString("status")).isEqualTo("PENDING");
+            assertThat(rs.getInt("key_version")).isEqualTo(1);
+
+            // 5. Invoice document -> Invoice and Checksum
+            rs = st.executeQuery(
+                    "SELECT invoice_id, sme_org_id, sha256_checksum, is_active, uploaded_by " +
+                            "FROM invoice_documents WHERE id = '" + DOC_ID + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getObject("invoice_id", UUID.class)).isEqualTo(INVOICE_ID);
+            assertThat(rs.getObject("sme_org_id", UUID.class)).isEqualTo(SME_ORG_ID);
+            assertThat(rs.getString("sha256_checksum")).isEqualTo("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+            assertThat(rs.getBoolean("is_active")).isTrue();
+            assertThat(rs.getObject("uploaded_by", UUID.class)).isEqualTo(SME_USER_ID);
+
+            rs = st.executeQuery(
+                    "SELECT invoice_id, sme_org_id, sha256_checksum, is_active " +
+                            "FROM invoice_documents WHERE id = '" + DOC2_ID + "'");
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getObject("invoice_id", UUID.class)).isEqualTo(INVOICE2_ID);
+            assertThat(rs.getObject("sme_org_id", UUID.class)).isEqualTo(SME_ORG_ID);
+            assertThat(rs.getString("sha256_checksum")).isEqualTo("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae");
+            assertThat(rs.getBoolean("is_active")).isTrue();
         }
     }
 }
