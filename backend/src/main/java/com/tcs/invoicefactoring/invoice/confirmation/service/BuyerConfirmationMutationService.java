@@ -34,6 +34,8 @@ import com.tcs.invoicefactoring.invoice.exception.InvalidInvoiceStateException;
 import com.tcs.invoicefactoring.invoice.exception.InvoiceNotFoundException;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceDocumentRepository;
 import com.tcs.invoicefactoring.invoice.repository.InvoiceRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -68,6 +70,13 @@ public class BuyerConfirmationMutationService {
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager transactionManager;
     private final SecureRandom secureRandom = new SecureRandom();
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public void setEntityManager(EntityManager entityManager) {
+        this.entityManager = entityManager;
+    }
 
     public BuyerConfirmationMutationService(
             InvoiceRepository invoiceRepository,
@@ -210,7 +219,7 @@ public class BuyerConfirmationMutationService {
      * Exchanges a raw URL fragment token for an authenticated 15-minute confirmation session token.
      * Universal lock order: invoices -> buyer_confirmation_requests -> buyer_confirmation_sessions.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ConfirmationSessionExpiredException.class)
     public TokenExchangeResponseDto exchangeToken(String rawToken, String clientIp, String userAgent, String authChannel, UUID portalUserId, UUID buyerOrgId) {
         checkRateLimit(clientIp);
 
@@ -226,8 +235,11 @@ public class BuyerConfirmationMutationService {
                 .orElseThrow(() -> new InvoiceNotFoundException("Invoice [" + initialReq.getInvoiceId() + "] not found"));
 
         // Step 2: Lock request SECOND
-        BuyerConfirmationRequest req = requestRepository.findById(initialReq.getId())
+        BuyerConfirmationRequest req = requestRepository.findForUpdate(initialReq.getId())
                 .orElseThrow(() -> new InvalidConfirmationTokenException("Confirmation request not found"));
+        if (entityManager != null) {
+            entityManager.refresh(req);
+        }
 
         // Step 3: Lock sessions deterministically
         List<BuyerConfirmationSession> activeSessions = sessionRepository.findActiveByRequestId(req.getId());
@@ -239,10 +251,12 @@ public class BuyerConfirmationMutationService {
         if (req.getExpiresAt().isBefore(Instant.now())) {
             activeSessions.forEach(s -> s.setStatus("EXPIRED"));
             sessionRepository.saveAll(activeSessions);
+            sessionRepository.flush();
 
             req.setStatus("EXPIRED");
             req.setUpdatedAt(Instant.now());
             requestRepository.save(req);
+            requestRepository.flush();
             throw new ConfirmationSessionExpiredException("Confirmation request has expired");
         }
 
@@ -286,7 +300,7 @@ public class BuyerConfirmationMutationService {
      * Acquires a processing lease on an active confirmation session, incrementing monotonic fencing generation.
      * Universal lock order: invoices -> buyer_confirmation_requests -> buyer_confirmation_sessions.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ConfirmationSessionExpiredException.class)
     public SessionLeaseResult acquireSessionLease(String rawSessionToken, String idempotencyKey, String requestHash, int leaseSeconds) {
         String sessionTokenHash = computeSha256(rawSessionToken);
         BuyerConfirmationSession session = sessionRepository.findBySessionTokenHash(sessionTokenHash)
@@ -324,6 +338,7 @@ public class BuyerConfirmationMutationService {
             session.setStatus("EXPIRED");
             session.setUpdatedAt(Instant.now());
             sessionRepository.save(session);
+            sessionRepository.flush();
             throw new ConfirmationSessionExpiredException("Confirmation session has expired");
         }
 
@@ -351,7 +366,7 @@ public class BuyerConfirmationMutationService {
      * Submits a buyer confirmation response, updating invoice status and constructing canonical legal audit evidence.
      * Universal lock order: invoices -> buyer_confirmation_requests -> buyer_confirmation_sessions.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ConfirmationSessionExpiredException.class)
     public BuyerConfirmationResponseDto respondToConfirmation(
             String rawSessionToken,
             long expectedGeneration,
@@ -411,6 +426,15 @@ public class BuyerConfirmationMutationService {
             throw new InvalidConfirmationTokenException("Confirmation request is not PENDING");
         }
         if (req.getExpiresAt().isBefore(Instant.now())) {
+            Instant now = Instant.now();
+            session.setStatus("EXPIRED");
+            session.setUpdatedAt(now);
+            sessionRepository.save(session);
+            req.setStatus("EXPIRED");
+            req.setUpdatedAt(now);
+            requestRepository.save(req);
+            sessionRepository.flush();
+            requestRepository.flush();
             throw new ConfirmationSessionExpiredException("Confirmation request has expired");
         }
         if (!"PENDING_VERIFICATION".equals(invoice.getStatus())) {
@@ -543,7 +567,11 @@ public class BuyerConfirmationMutationService {
         invoiceRepository.findForUpdate(req.getInvoiceId(), smeOrgId)
                 .orElseThrow(() -> new InvoiceNotFoundException("Invoice not found"));
 
-        req = requestRepository.findById(req.getId()).orElseThrow();
+        req = requestRepository.findForUpdate(req.getId())
+                .orElseThrow(() -> new InvalidConfirmationTokenException("Confirmation request [" + requestId + "] not found"));
+        if (entityManager != null) {
+            entityManager.refresh(req);
+        }
         if (!"PENDING".equals(req.getStatus())) {
             throw new InvalidInvoiceStateException("Only PENDING confirmation requests can be cancelled (status: " + req.getStatus() + ")");
         }
