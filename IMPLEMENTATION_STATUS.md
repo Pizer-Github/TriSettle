@@ -5,7 +5,7 @@
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | **M1: Foundation & Skeleton** | 🟢 Accepted & Hardened | Modular Monolith, Flyway V1-V5, Hardened JWT Auth, DEFINER Auth Lookups, Transactional RLS Aspect, Dynamic Admin Bootstrap, Angular 17 workspace with lockfile, CI pipeline |
-| **M2: Invoice & Verification** | 🟢 Complete & Verified | Increment 1: Invoice Creation, Document Management, Idempotency Lease Fencing, RLS Tenant Isolation (Complete). Increment 2: Buyer Confirmation Workflow, Encrypted Outbox, RFC 8785 Evidence Digest, Monotonic Fencing (Complete). |
+| **M2: Invoice & Verification** | 🟢 Accepted & Baseline Tagged | Increment 1: Invoice Creation, Document Management, Idempotency Lease Fencing, RLS Tenant Isolation (Complete). Increment 2: Buyer Confirmation Workflow, Encrypted Outbox, RFC 8785 Evidence Digest, Monotonic Fencing, V9-V11 Security Hardening (Complete). Tag: `m2-increment-2-buyer-confirmation`, Merge Commit: `47c36c0`. |
 | **M3: Bidding & Transaction Boundaries** | ⚪ Not Implemented | Polymorphic bids, `@Transactional` `FOR UPDATE` bid acceptance |
 | **M4: Ledger & Webhooks** | ⚪ Not Implemented | Immutable double-entry ledger triggers, webhook ingestion |
 | **M5: Exception Workflows & Admin Portal** | ⚪ Not Implemented | Recourse Demands, Dual approval, Step-Up Auth |
@@ -145,8 +145,30 @@
 - **AES-256-GCM Outbox Encryption:** `NotificationEnvelopeEncryptionService` encrypts notification payloads using 256-bit AES-GCM with 12-byte IV and AAD context binding (`aggregateType:aggregateId:tenantId:keyVersion`), with full support for seamless cryptographic key rotation.
 - **Transactional Outbox Worker:** `DurableOutboxWorker` claims pending events with `SKIP LOCKED`, delivers notifications via pluggable transports (`LoggingEmailNotificationTransport`), and manages exponential backoff retries with dead-letter status.
 
-### 4. Automated Tests & CI Verification
-- Unit Tests (Surefire): 59 tests (0 failures, 0 errors, 0 skipped):
+### 4. Database Security Remediation & Migrations (V9, V10, V11)
+- **`V9__remediate_buyer_confirmation_security.sql`:**
+  - Hardened plpgsql implementation of all eight buyer confirmation SQL procedures.
+  - Role ownership strictly transferred to `buyer_confirmation_definer`.
+  - Permissions model: `REVOKE ALL ON FUNCTION ... FROM PUBLIC; GRANT EXECUTE TO app_worker;`.
+  - Explicit function search path enforced: `SET search_path = pg_catalog, public, pg_temp;`.
+  - Tenant and corporate identity boundaries verified against `organization_tax_profiles` and Indian GSTIN formatting.
+- **`V10__transactional_expiry_and_privilege_hardening.sql`:**
+  - Resolved transaction rollback defect during expiry handling: `fn_exchange_buyer_confirmation_token`, `fn_acquire_session_lease`, and `fn_submit_buyer_confirmation_response` mutate state to `EXPIRED` and return structured JSON outcomes (`{"outcome": "EXPIRED", "code": "REQUEST_EXPIRED"}`) rather than raising unhandled SQL exceptions.
+  - Enclosing database transactions commit successfully; Spring application service maps structured outcome to HTTP 410 Gone only after persistence is committed.
+  - Granted `INSERT, UPDATE ON confirmation_attempt_throttles TO app_worker` to ensure IP rate limiting persists correctly.
+- **`V11__harden_invoice_verification_trigger_roles.sql`:**
+  - Replaced wildcard role-name matching (`CURRENT_USER LIKE '%owner%'`) with an explicit whitelist: `buyer_confirmation_definer`, `postgres`, and `app_owner`.
+  - Disallowed test-only roles (`test_owner`) from production migrations.
+  - Unconditional Invariants:
+    - **Invariant A:** Status cannot transition out of `VERIFIED`, and confirmation IDs cannot be altered once verified, unconditionally enforced across all roles.
+    - **Invariant C:** Verified invoices require valid confirmation binding, status `'CONFIRMED'`, action `'CONFIRMED'`, and document SHA-256 checksum matching unconditionally across all roles, including table owners.
+- **Accepted Operational Trust Boundary (`app.tenant_id`):**
+  - PostgreSQL RLS policies evaluate `current_setting('app.tenant_id', true)` without cryptographic bearer token validation inside the database engine.
+  - An attacker gaining direct SQL execution as `app_worker` could execute `SET LOCAL app.tenant_id` to forge context.
+  - Accepted Trust Boundary: Tenant isolation relies on the application tier as the trusted gatekeeper (connection pooling, parameterized queries, strict network isolation preventing direct database access).
+
+### 5. Automated Tests & CI Verification
+- **Unit & Migration Tests (Surefire):** 68 tests (0 failures, 0 errors, 0 skipped):
   - `IdempotencyServiceTest` (8 tests)
   - `DocumentStorageServiceTest` (4 tests)
   - `GstinValidatorTest` (14 tests)
@@ -154,10 +176,10 @@
   - `InvoiceServiceTest` (7 tests)
   - `JwtServiceTest` (4 tests)
   - `BuyerConfirmationMutationServiceTest` (7 tests)
-  - `EvidenceSerializationServiceTest` (2 tests)
+  - `EvidenceSerializationServiceTest` (11 tests)
   - `NotificationEnvelopeEncryptionServiceTest` (3 tests)
   - `FlywayMigrationTest` (1 test in containerized CI)
-- Integration Tests (Failsafe via Testcontainers PostgreSQL 16.4): 42 tests (0 failures, 0 errors, 0 skipped):
+- **Integration Tests (Failsafe via Testcontainers PostgreSQL 16.4):** 79 tests (0 failures, 0 errors, 0 skipped):
   - `AuthControllerIT` (9 tests)
   - `InvoiceCreationIT` (7 tests)
   - `InvoiceDocumentUploadIT` (4 tests)
@@ -165,22 +187,31 @@
   - `InvoiceTenantIsolationIT` (5 tests)
   - `TenantIsolationIT` (8 tests)
   - `IdempotencyFencingIT` (1 test)
-  - `BuyerConfirmationWorkflowIT` (4 comprehensive end-to-end tests: token channel confirmation, document download & binary stream, buyer dispute/rejection, SME cancellation with atomic session revocation, progressive rate limiting)
-- Total Backend Automated Tests Executed in CI: **101 tests (0 failures, 0 errors, 0 skipped)**.
+  - `BuyerConfirmationWorkflowIT` (4 tests: token confirmation, doc download, rejection/dispute, rate limiting)
+  - `BuyerConfirmationConcurrencyIT` (3 tests: concurrent cancellation, token exchange, monotonic fencing)
+  - `BuyerConfirmationExpiryPersistenceIT` (6 tests: token expiry commit, lease expiry commit, response expiry commit, independent JDBC connection verification)
+  - `BuyerConfirmationRateThrottlingIT` (3 tests: throttle persistence, backoff tiers)
+  - `InvoiceVerificationTriggerIT` (9 tests: app_worker direct verification denied, definer success, definer missing ID rejected, definer checksum mismatch rejected, verified immutability across all roles, unintended role with 'owner' rejected, table owner unconditionally restricted)
+  - `BuyerConfirmationTenantIsolationIT` (7 tests: tenant isolation across organizations, GSTINs, sessions, forged context)
+  - `DatabaseSecurityDefinerPrivilegeIT` (5 tests: SECURITY DEFINER ownership, search path, PUBLIC revocation, worker execute grant, unauthorized role denial)
+  - `V8ToV9MigrationUpgradeIT` (7 tests: populated upgrade V8 -> V9 -> V10 -> V11 with 100% relationship preservation for requests, invoices, sessions, responses, outbox events, and document checksums)
+- **Total Backend Automated Tests Executed in CI:** **147 tests (0 failures, 0 errors, 0 skipped)**.
 
 ---
 
 ## Command Execution & Verification Evidence
 
-| Step / Command | Target | Local Result | CI Result (Run 41493190054) | Classification |
+| Step / Command | Target | Local Result | CI Result (Run 41567410045) | Classification |
 |---|---|---|---|:---:|
-| `git status` / `git log` | Repository Integrity & Commit History | Clean working tree, linear commits | Commit `fa09c32` | **PASS** |
+| `git status` / `git log` | Repository Integrity & Commit History | Clean working tree, linear commits | PR Head `c7cfc82` / Merge `47c36c0` | **PASS** |
 | `cd backend; .\mvnw.cmd test-compile` | Maven Test Source Compilation | All classes compile cleanly (`BUILD SUCCESS`, exit code 0) | Verified in CI | **PASS** |
-| `cd backend; .\mvnw.cmd test -Dtest=...` | Unit Test Suite (58 tests locally) | 58 passed, 0 failed, 0 errors, 0 skipped (`BUILD SUCCESS`) | 59 passed (incl. Flyway) | **PASS** |
-| `cd backend; ./mvnw clean verify -B` | Full Integration Test Suite (Testcontainers) | Host lacks Docker daemon | 101 passed, 0 failed, 0 skipped | **PASS** |
+| `cd backend; .\mvnw.cmd test -Dtest=...` | Unit Test Suite (67 tests locally) | 67 passed, 0 failed, 0 errors, 0 skipped (`BUILD SUCCESS`) | 68 passed (incl. Flyway) | **PASS** |
+| `cd backend; ./mvnw clean verify -B` | Full Integration Test Suite (Testcontainers) | Host lacks Docker daemon | 147 passed, 0 failed, 0 skipped | **PASS** |
 | `cd frontend; npm ci && npm run test` | Angular 17 / Karma Unit Test Suite | Node 20 / Angular CLI | 3 specs passed, 0 failures | **PASS** |
 | `docker compose --env-file .env.example config` | Compose & Dockerfile Configuration | Compose syntax & Dockerfile checks | Validated successfully | **PASS** |
 
-*CI Workflow Run URL:* https://github.com/Pizer-Github/TriSettle/actions/runs/41493190054  
-*Commit Tested:* `fa09c327f2a5ceaf2e7ad2b635985889764cda0b`  
+*Baseline Tag:* `m2-increment-2-buyer-confirmation`  
+*Merge Commit:* `47c36c07d5f17da8450696178432c507985b5f5e`  
+*PR #1 Head Tested:* `c7cfc8295a389f26d921ba82aa1408e036b9a116`  
+*CI Workflow Run URL:* https://github.com/Pizer-Github/TriSettle/actions/runs/41567410045  
 *All 3 CI Jobs (`Backend (Java 21 / Spring Boot 3)`, `Frontend (Angular 17 / Node.js 20)`, `Docker Configuration Validation`) green.*
